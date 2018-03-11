@@ -1,2 +1,38 @@
 #!/usr/bin/python
+import argparse
 
+# ----------------------------- GLOBAL VARIABLES -----------------------------
+
+# Root page for Fakebook
+ROOT = 'http://fring.ccs.neu.edu/fakebook/'
+# Log-in form for Fakebook
+LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+
+# --------------------------- END GLOBALS VARIABLES --------------------------
+
+class WebCrawler:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
+
+    def login():
+        """Logs into Fakebook"""
+
+
+def crawl(crawler):
+    """Runs the web crawler"""
+    crawler.login()
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Fakebook login.',
+                                     add_help=False)
+    parser.add_argument('username')
+    parser.add_argument('password')
+    args = parser.parse_args()
+
+    # Create a WebCrawler with the given username and password
+    crawler = WebCrawler(args.username, args.password)
+
+    # Start crawling
+    crawl(crawler)

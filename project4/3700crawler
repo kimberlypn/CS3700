@@ -122,6 +122,7 @@ class WebCrawler:
         login_form = self.GET(LOGIN_FORM)
         print(login_form)
 
+
 def crawl(crawler):
     """Runs the web crawler"""
     crawler.login()

@@ -27,11 +27,11 @@ class WebCrawler:
     def set_cookie(self):
         """Generates a cookie using the CSRF token and the session ID"""
         if self.csrf:
-            self.cookie += 'CSRFToken=' + self.csrf
+            self.cookie += 'csrftoken=' + self.csrf
         if self.session:
             if self.csrf:
                 self.cookie += '; '
-            self.cookie += 'SessionID=' + self.session
+            self.cookie += 'sessionid=' + self.session
  
     def connect(self, host):
         """Creates and connects a socket"""
@@ -61,6 +61,34 @@ class WebCrawler:
         sock.close() 
         return data
 
+    def parse_response(self, data):
+        """Returns a dict of the headers"""
+        response = {}
+        # Get the headers
+        headers = data.split(CRLF)[0]
+
+        # Add the status code and message
+        first_header = headers.split('\r\n')[0]
+        response['Status Code'] = first_header.split(' ')[1]
+        response['Status Message'] = first_header.split(' ')[2].strip()
+
+        # Set the CSRF token, session ID, and cookie
+        self.csrf = headers.split('Set-Cookie: csrftoken=')[1].split(';')[0]
+        self.session = headers.split('Set-Cookie: sessionid=')[1].split(';')[0]
+        self.set_cookie()
+
+        # Add the remaining headers; ignore the cookies since these
+        # are already saved as fields
+        headers = headers.split('\r\n')[1:]
+        for h in headers:
+            header = h.split(': ')
+            if header[0] == 'Set-Cookie':
+                continue
+            else:
+                response[header[0]] = header[1]
+
+        return response
+
     def GET(self, url):
         """Implements the HTTP GET method"""
         # Parse the URL and retrieve the necessary fields
@@ -69,7 +97,7 @@ class WebCrawler:
         path = '/' if not url.path else url.path
         if url.query:
             path += '?' + url.query
-       
+ 
         # Build the request
         msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
         if self.cookie:
@@ -80,8 +108,9 @@ class WebCrawler:
         sock = self.connect(host)
         sock.send(str.encode(msg))
               
-        # Get the response
+        # Get and parse the response
         resp = self.get_response(sock)
+        resp = self.parse_response(resp)
 
         return resp
 
@@ -89,7 +118,6 @@ class WebCrawler:
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
         print(login_form)
-
 
 def crawl(crawler):
     """Runs the web crawler"""

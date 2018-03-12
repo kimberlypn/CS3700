@@ -88,19 +88,20 @@ class WebCrawler:
         return data
 
     def parse_response(self, data):
-        """Returns a dict of the headers"""
+        """Returns a dict of the headers and HTML"""
         response = {}
+        data = data.split(CRLF + CRLF)
         # Get the headers
-        headers = data.split(CRLF + CRLF)[0]
+        headers = data[0]
 
         # Add the status code and message
-        status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', data)
+        status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
         response['Status Code'] = status.group(2) if status else None
         response['Status Message'] = status.group(3) if status else None
 
         # Set the CSRF token, session ID, and cookie
-        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', data)
-        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', data)
+        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
+        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
         self.csrf = csrf_token.group(1) if csrf_token else self.csrf
         self.session = session_id.group(1) if session_id else self.session
         self.set_cookie()
@@ -114,6 +115,9 @@ class WebCrawler:
                 continue
             else:
                 response[header[0]] = header[1]
+
+        # Add the HTML
+        response['HTML'] = data[1] if len(data) > 1 else None
 
         # Return the dict
         return response

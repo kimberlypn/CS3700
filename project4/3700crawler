@@ -11,11 +11,33 @@ ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
 LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
 # Carriage return, line feed
-CRLF = '\r\n\r\n'
+CRLF = '\r\n'
 # Maximum amount of data to be received at once from the socket
 MAX_BYTES = 5000
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
+
+def make_http(type, path, headers={}, body=''):
+    msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
+    for key, value in headers.items():
+        if value:
+            msg += (': '.join((key, value)) + CRLF)
+    msg += CRLF
+    msg += body + CRLF
+    return msg
+
+def make_formstr(form):
+    c = lambda s: s.strip().replace(' ', '+')
+    return '&'.join(['='.join((c(key), c(value))) for key, value in form.items()])
+
+def get_host_path(url):
+    # Parse the URL and retrieve the necessary fields
+    url = urlparse(url)
+    host = url.netloc
+    path = '/' if not url.path else url.path
+    if url.query:
+        path += '?' + url.query
+    return (host, path)
 
 class WebCrawler:
     def __init__(self, username, password):
@@ -103,33 +125,48 @@ class WebCrawler:
     def GET(self, url):
         """Implements the HTTP GET method"""
         # Parse the URL and retrieve the necessary fields
-        url = urlparse(url)
-        host = url.netloc
-        path = '/' if not url.path else url.path
-        if url.query:
-            path += '?' + url.query
-
-        # Build the request
-        msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
-        if self.cookie:
-            msg += 'Cookie: ' + self.cookie
-        msg += CRLF
+        host, path = get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
-        sock.send(str.encode(msg))
+        sock.send(str.encode(make_http('GET', path, {'cookie': self.cookie, 'host':host})))
 
-        # Get and parse the response
+        # Return the parsed response
         resp = self.get_response(sock)
         resp = self.parse_response(resp)
+        return resp
 
-        # Return the response
+    def POST(self, url, body):
+        """Implements the HTTP POST method"""
+        # Parse the URL and retrieve the necessary fields
+        host, path = get_host_path(url)
+
+        # Send the request
+        sock = self.connect(host)
+        headers = {
+            'cookie': self.cookie,
+            'host': host,
+            'content-length': str(len(body)),
+            'content-type': 'application/x-www-form-urlencoded'
+        }
+        sock.send(str.encode(make_http('POST', path, headers, body)))
+
+        # Return the parsed response
+        resp = self.get_response(sock)
+        resp = self.parse_response(resp)
         return resp
 
     def login(self):
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
-        #print(login_form)
+        login_resp = self.POST(LOGIN_FORM, make_formstr({
+            'username': self.username,
+            'password': self.password,
+            'csrfmiddlewaretoken': self.csrf,
+            'submit': 'Log in',
+            'next': '/fakebook/'
+        }))
+        print(login_resp)
 
 def crawl(crawler):
     """Runs the web crawler"""

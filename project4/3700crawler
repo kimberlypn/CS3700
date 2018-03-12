@@ -87,15 +87,6 @@ class WebCrawler:
         # Return the data
         return data
 
-    def find_match(self, pattern, data, help_info):
-        """Returns the match if found"""
-        match = re.search(pattern, data)
-        if not match:
-            print('Couldn\'t extract ' + help_info + '. Aborting.')
-            exit(1)
-        else:
-            return match
-
     def parse_response(self, data):
         """Returns a dict of the headers"""
         response = {}
@@ -103,16 +94,15 @@ class WebCrawler:
         headers = data.split(CRLF)[0]
 
         # Add the status code and message
-        status = self.find_match('(HTTP/1.1)\W(\d{3})\W(.+)', data, 'status')
-        response['Status Code'] = status.group(2)
-        response['Status Message'] = status.group(3)
+        status = re.match('(HTTP/1.1)\W(\d{3})\W(.+)', data)
+        response['Status Code'] = status.group(2) if status else None
+        response['Status Message'] = status.group(3) if status else None
 
-        print(data)
         # Set the CSRF token, session ID, and cookie
-        self.csrf = self.find_match('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);',
-                        data, 'CSRF token').group(1)
-        self.session = self.find_match('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
-                           data, 'Session ID').group(1)
+        csrf_token = re.match('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', data)
+        session_id = re.match('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', data)
+        self.csrf = csrf_token.group(1) if csrf_token else None
+        self.session = session_id.group(1) if session_id else None
         self.set_cookie()
 
         # Add the remaining headers; ignore the cookies since these

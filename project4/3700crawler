@@ -59,6 +59,7 @@ class WebCrawler:
         session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
         self.csrf = csrf_token.group(1) if csrf_token else self.csrf
         self.session = session_id.group(1) if session_id else self.session
+
         # Set the cookie
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
         session_id = 'sessionid=' + self.session if self.session else None

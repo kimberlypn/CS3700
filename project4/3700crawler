@@ -24,7 +24,7 @@ class WebCrawler:
         self.session = None # Initialize session ID to None
         self.cookie = '' # Initialize cookie to an empty string
 
-    def setCookie(self):
+    def set_cookie(self):
         """Generates a cookie using the CSRF token and the session ID"""
         if self.csrf:
             self.cookie += 'CSRFToken=' + self.csrf

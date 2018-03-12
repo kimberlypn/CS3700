@@ -1,7 +1,8 @@
 #!/usr/bin/python3 -u
 import argparse
-import urllib.parse import urlparse
+from urllib.parse import urlparse
 import socket
+import json
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
@@ -9,13 +10,39 @@ import socket
 ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
 LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+# Carriage return, line feed
+CRLF = '\r\n\r\n'
+# Maximum amount of data to be received at once from the socket
+MAX_BYTES = 5000
 
 # --------------------------- END GLOBALS VARIABLES --------------------------
 
 class WebCrawler:
     def __init__(self, username, password):
-        self.username = username
-        self.password = password
+        self.username = username # Username given by the user
+        self.password = password # Password given by the user
+        self.csrf = None # Initialize CSRF token to None
+        self.session = None # Initialize session ID to None
+        self.cookie = '' # Initialize cookie to an empty string
+
+    def setCookie(self):
+        """Generates a cookie using the CSRF token and the session ID"""
+        if self.csrf:
+            self.cookie += 'CSRFToken=' + self.csrf
+        if self.session:
+            if self.csrf:
+                self.cookie += '; '
+            self.cookie += 'SessionID=' + self.session
+ 
+    def connect(self, host):
+        """Creates and connects a socket"""
+        # Set up the socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        # Connect to the server on the HTTP port
+        sock.connect((host, 80))
+        # Return the socket
+        return sock
 
     def GET(self, url):
         """Implements the HTTP GET method"""
@@ -23,21 +50,39 @@ class WebCrawler:
         url = urlparse(url)
         host = url.netloc
         path = '/' if not url.path else url.path
-        path = path += '?' + url.query if url.query else path
-
-        # Set up the socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(0.3)
-        # Connect to the server on the HTTP port
-        sock.connect((host, 80))
+        if url.query:
+            path += '?' + url.query
+       
+        # Build the request
+        msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
+        if self.cookie:
+            msg += 'Cookie: ' + self.cookie
+        msg += CRLF
+        # Send the request
+        sock = self.connect(host)
+        sock.send(str.encode(msg))
+        # Get the response
+        data = ''
+        while True:
+            try:
+                new_data = sock.recv(MAX_BYTES)
+                # Exit the loop if all of the data has been retrieved
+                if not new_data:
+                    break
+                # Else, append the retrieved data
+                else:
+                    data += new_data.rstrip().decode()
+            except:
+                break
+        # Close the socket
+        sock.close() 
         
-        
-
+        return data
 
     def login(self):
         """Logs into Fakebook"""
-        
-
+        login_form = self.GET(LOGIN_FORM)
+        print(login_form)
 
 def crawl(crawler):
     """Runs the web crawler"""

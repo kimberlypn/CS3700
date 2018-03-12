@@ -52,8 +52,14 @@ class WebCrawler:
         self.session = None # Initialize session ID to None
         self.cookie = '' # Initialize cookie to an empty string
 
-    def set_cookie(self):
+    def set_cookie(self, headers):
         """Generates a cookie using the CSRF token and the session ID"""
+        # Set the CSRF token and session ID
+        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
+        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
+        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
+        self.session = session_id.group(1) if session_id else self.session
+        # Set the cookie
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
         session_id = 'sessionid=' + self.session if self.session else None
         self.cookie = '; '.join(filter(None, [csrf_token, session_id]))
@@ -100,11 +106,7 @@ class WebCrawler:
         response['Status Message'] = status.group(3) if status else None
 
         # Set the CSRF token, session ID, and cookie
-        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
-        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
-        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
-        self.session = session_id.group(1) if session_id else self.session
-        self.set_cookie()
+        self.set_cookie(headers)
 
         # Add the remaining headers; ignore the cookies since these
         # are already saved as fields
@@ -131,6 +133,7 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
+            'Connection': 'keep-alive',
             'Cookie': self.cookie
         }
         sock.send(str.encode(make_http('GET', path, headers)))
@@ -149,6 +152,7 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
+            'Connection': 'keep-alive',
             'Content-Length': str(len(body)),
             'Content-Type': 'application/x-www-form-urlencoded',
             'Cookie': self.cookie

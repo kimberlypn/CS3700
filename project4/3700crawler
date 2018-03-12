@@ -1,5 +1,7 @@
-#!/usr/bin/python
+#!/usr/bin/python3 -u
 import argparse
+import urllib.parse import urlparse
+import socket
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
@@ -15,8 +17,26 @@ class WebCrawler:
         self.username = username
         self.password = password
 
-    def login():
+    def GET(self, url):
+        """Implements the HTTP GET method"""
+        # Parse the URL and retrieve the necessary fields
+        url = urlparse(url)
+        host = url.netloc
+        path = '/' if not url.path else url.path
+        path = path += '?' + url.query if url.query else path
+
+        # Set up the socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.3)
+        # Connect to the server on the HTTP port
+        sock.connect((host, 80))
+        
+        
+
+
+    def login(self):
         """Logs into Fakebook"""
+        
 
 
 def crawl(crawler):

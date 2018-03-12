@@ -67,14 +67,17 @@ class WebCrawler:
         response = {}
         # Get the headers
         headers = data.split(CRLF)[0]
+
         # Add the status code and message
         first_header = headers.split('\r\n')[0]
         response['Status Code'] = first_header.split(' ')[1]
-        response['Status Message'] = first_header.split(' ')[2].strip()
+        response['Status Message'] = first_header.split(' ')[2]
+
         # Set the CSRF token, session ID, and cookie
         self.csrf = headers.split('Set-Cookie: csrftoken=')[1].split(';')[0]
         self.session = headers.split('Set-Cookie: sessionid=')[1].split(';')[0]
         self.set_cookie()
+
         # Add the remaining headers; ignore the cookies since these
         # are already saved as fields
         headers = headers.split('\r\n')[1:]
@@ -84,6 +87,7 @@ class WebCrawler:
                 continue
             else:
                 response[header[0]] = header[1]
+
         # Return the dict
         return response
 
@@ -95,17 +99,21 @@ class WebCrawler:
         path = '/' if not url.path else url.path
         if url.query:
             path += '?' + url.query
+
         # Build the request
         msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
         if self.cookie:
             msg += 'Cookie: ' + self.cookie
         msg += CRLF
+
         # Send the request
         sock = self.connect(host)
         sock.send(str.encode(msg))
+
         # Get and parse the response
         resp = self.get_response(sock)
         resp = self.parse_response(resp)
+
         # Return the response
         return resp
 

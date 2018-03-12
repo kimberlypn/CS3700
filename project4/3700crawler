@@ -38,8 +38,10 @@ class WebCrawler:
         # Set up the socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.3)
+
         # Connect to the server on the HTTP port
         sock.connect((host, 80))
+
         # Return the socket
         return sock
 
@@ -57,13 +59,17 @@ class WebCrawler:
                     data += new_data.rstrip().decode()
             except:
                 break
+
         # Close the socket
         sock.close() 
+
+        # Return the data
         return data
 
     def parse_response(self, data):
         """Returns a dict of the headers"""
         response = {}
+
         # Get the headers
         headers = data.split(CRLF)[0]
 
@@ -87,6 +93,7 @@ class WebCrawler:
             else:
                 response[header[0]] = header[1]
 
+        # Return the dict
         return response
 
     def GET(self, url):
@@ -97,7 +104,7 @@ class WebCrawler:
         path = '/' if not url.path else url.path
         if url.query:
             path += '?' + url.query
- 
+
         # Build the request
         msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
         if self.cookie:
@@ -107,11 +114,12 @@ class WebCrawler:
         # Send the request
         sock = self.connect(host)
         sock.send(str.encode(msg))
-              
+
         # Get and parse the response
         resp = self.get_response(sock)
         resp = self.parse_response(resp)
 
+        # Return the response
         return resp
 
     def login(self):

@@ -28,7 +28,6 @@ class WebCrawler:
         """Generates a cookie using the CSRF token and the session ID"""
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
         session_id = 'sessionid=' + self.session if self.session else None
-
         self.cookie = '; '.join(filter(None, [csrf_token, session_id]))
  
     def connect(self, host):
@@ -118,8 +117,7 @@ class WebCrawler:
     def login(self):
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
-        #print(login_form)
-        print(self.cookie)
+        print(login_form)
 
 def crawl(crawler):
     """Runs the web crawler"""

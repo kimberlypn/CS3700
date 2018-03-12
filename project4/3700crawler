@@ -30,6 +30,14 @@ def make_formstr(form):
     c = lambda s: s.strip().replace(' ', '+')
     return '&'.join(['='.join((c(key), c(value))) for key, value in form.items()])
 
+def get_host_path(url):
+    # Parse the URL and retrieve the necessary fields
+    url = urlparse(url)
+    host = url.netloc
+    path = '/' if not url.path else url.path
+    if url.query:
+        path += '?' + url.query
+    return (host, path)
 
 class WebCrawler:
     def __init__(self, username, password):
@@ -79,11 +87,7 @@ class WebCrawler:
     def GET(self, url):
         """Implements the HTTP GET method"""
         # Parse the URL and retrieve the necessary fields
-        url = urlparse(url)
-        host = url.netloc
-        path = '/' if not url.path else url.path
-        if url.query:
-            path += '?' + url.query
+        host, path = get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
@@ -97,15 +101,16 @@ class WebCrawler:
     def POST(self, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
-        url = urlparse(url)
-        host = url.netloc
-        path = '/' if not url.path else url.path
-        if url.query:
-            path += '?' + url.query
+        host, path = get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
-        headers = {'cookie': self.cookie, 'host': host, 'content-length': str(len(body)), 'content-type': 'application/x-www-form-urlencoded'}
+        headers = {
+            'cookie': self.cookie,
+            'host': host,
+            'content-length': str(len(body)),
+            'content-type': 'application/x-www-form-urlencoded'
+        }
         sock.send(str.encode(make_http('POST', path, headers, body)))
 
         # Get the response
@@ -122,7 +127,7 @@ class WebCrawler:
             print(login_form)
             exit(1)
         self.csrf = match.group(1)
-        re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', login_form)
+        match = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', login_form)
         if (not match):
             print('Couldn\'t extract SessionID token, aborting')
             print(login_form)

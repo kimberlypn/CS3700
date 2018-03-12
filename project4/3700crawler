@@ -2,6 +2,7 @@
 import argparse
 from urllib.parse import urlparse
 import socket
+import re
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
@@ -10,11 +11,25 @@ ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
 LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
 # Carriage return, line feed
-CRLF = '\r\n\r\n'
+CRLF = '\r\n'
 # Maximum amount of data to be received at once from the socket
 MAX_BYTES = 5000
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
+
+def make_http(type, path, headers={}, body=''):
+    msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
+    for key, value in headers.items():
+        if value:
+            msg += (': '.join((key, value)) + CRLF)
+    msg += CRLF
+    msg += body + CRLF
+    return msg
+
+def make_formstr(form):
+    c = lambda s: s.strip().replace(' ', '+')
+    return '&'.join(['='.join((c(key), c(value))) for key, value in form.items()])
+
 
 class WebCrawler:
     def __init__(self, username, password):
@@ -27,12 +42,12 @@ class WebCrawler:
     def set_cookie(self):
         """Generates a cookie using the CSRF token and the session ID"""
         if self.csrf:
-            self.cookie += 'CSRFToken=' + self.csrf
+            self.cookie += 'csrftoken=' + self.csrf
         if self.session:
             if self.csrf:
                 self.cookie += '; '
-            self.cookie += 'SessionID=' + self.session
- 
+            self.cookie += 'sessionid=' + self.session
+
     def connect(self, host):
         """Creates and connects a socket"""
         # Set up the socket
@@ -58,7 +73,7 @@ class WebCrawler:
             except:
                 break
         # Close the socket
-        sock.close() 
+        sock.close()
         return data
 
     def GET(self, url):
@@ -69,17 +84,30 @@ class WebCrawler:
         path = '/' if not url.path else url.path
         if url.query:
             path += '?' + url.query
-       
-        # Build the request
-        msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
-        if self.cookie:
-            msg += 'Cookie: ' + self.cookie
-        msg += CRLF
 
         # Send the request
         sock = self.connect(host)
-        sock.send(str.encode(msg))
-              
+        sock.send(str.encode(make_http('GET', path, {'cookie': self.cookie, 'host':host})))
+
+        # Get the response
+        resp = self.get_response(sock)
+
+        return resp
+
+    def POST(self, url, body):
+        """Implements the HTTP POST method"""
+        # Parse the URL and retrieve the necessary fields
+        url = urlparse(url)
+        host = url.netloc
+        path = '/' if not url.path else url.path
+        if url.query:
+            path += '?' + url.query
+
+        # Send the request
+        sock = self.connect(host)
+        headers = {'cookie': self.cookie, 'host': host, 'content-length': str(len(body)), 'content-type': 'application/x-www-form-urlencoded'}
+        sock.send(str.encode(make_http('POST', path, headers, body)))
+
         # Get the response
         resp = self.get_response(sock)
 
@@ -88,7 +116,29 @@ class WebCrawler:
     def login(self):
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
-        print(login_form)
+        match = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', login_form)
+        if (not match):
+            print('Couldn\'t extract CSRF token, aborting')
+            print(login_form)
+            exit(1)
+        self.csrf = match.group(1)
+        re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', login_form)
+        if (not match):
+            print('Couldn\'t extract SessionID token, aborting')
+            print(login_form)
+            exit(1)
+        self.session = match.group(1)
+
+        self.set_cookie()
+
+        login_resp = self.POST(LOGIN_FORM, make_formstr({
+            'username': self.username,
+            'password': self.password,
+            'csrfmiddlewaretoken': self.csrf,
+            'submit': 'Log in',
+            'next': '/fakebook/'
+        }))
+        print(login_resp)
 
 
 def crawl(crawler):

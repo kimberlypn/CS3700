@@ -2,7 +2,6 @@
 import argparse
 from urllib.parse import urlparse
 import socket
-import json
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
@@ -15,7 +14,7 @@ CRLF = '\r\n\r\n'
 # Maximum amount of data to be received at once from the socket
 MAX_BYTES = 5000
 
-# --------------------------- END GLOBALS VARIABLES --------------------------
+# ------------------------- END OF GLOBALS VARIABLES -------------------------
 
 class WebCrawler:
     def __init__(self, username, password):
@@ -44,24 +43,8 @@ class WebCrawler:
         # Return the socket
         return sock
 
-    def GET(self, url):
-        """Implements the HTTP GET method"""
-        # Parse the URL and retrieve the necessary fields
-        url = urlparse(url)
-        host = url.netloc
-        path = '/' if not url.path else url.path
-        if url.query:
-            path += '?' + url.query
-       
-        # Build the request
-        msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
-        if self.cookie:
-            msg += 'Cookie: ' + self.cookie
-        msg += CRLF
-        # Send the request
-        sock = self.connect(host)
-        sock.send(str.encode(msg))
-        # Get the response
+    def get_response(self, sock):
+        """Returns the data retrieved from the socket"""
         data = ''
         while True:
             try:
@@ -76,13 +59,37 @@ class WebCrawler:
                 break
         # Close the socket
         sock.close() 
-        
         return data
+
+    def GET(self, url):
+        """Implements the HTTP GET method"""
+        # Parse the URL and retrieve the necessary fields
+        url = urlparse(url)
+        host = url.netloc
+        path = '/' if not url.path else url.path
+        if url.query:
+            path += '?' + url.query
+       
+        # Build the request
+        msg = 'GET ' + path + ' HTTP/1.1\nHost: ' + host
+        if self.cookie:
+            msg += 'Cookie: ' + self.cookie
+        msg += CRLF
+
+        # Send the request
+        sock = self.connect(host)
+        sock.send(str.encode(msg))
+              
+        # Get the response
+        resp = self.get_response(sock)
+
+        return resp
 
     def login(self):
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
         print(login_form)
+
 
 def crawl(crawler):
     """Runs the web crawler"""

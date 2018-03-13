@@ -1,13 +1,40 @@
-Team:
+Team: kpnguyen-sweeneyt
 
 ## High-level approach: 
+We created a WebCrawler class that gets instantiated in main with the username 
+and password entered by the user. We have a make_http() function that formats 
+an HTTP request. Our GET() and POST() functions use this to send the 
+request via a socket that is connected to the server on the HTTP port. The data 
+that is received from the socket gets parsed into a dictionary of the headers 
+and HTML.
 
+The program starts when crawl() gets called. First, the WebCrawler logs into 
+Fakebook by sending a GET request for the log-in form. It extracts the CSRF 
+token and session ID from the response and generates the cookie string from 
+them; all three values are fields of the class. Next, the WebCrawler sends a 
+POST request to log in and extracts the new session ID. Upon successfully 
+logging in, the WebCrawler creates a set of unvisited URLs. While this set is 
+not empty, the WebCrawler pops a URL and adds it to a visited set to avoid 
+loops, gets and parses the page, and checks for any keys if the page is valid. 
+When done, the list of secret keys is returned.
 
 ## Challenges: 
-
+One challenge that we ran into was with the cookies. We were managing them 
+incorrectly at first, which resulted in us getting sent back to the log-in page 
+after logging in and following the 302 because the session was invalid. So, we 
+reworked our cookie logic, using print statements along the way to help debug, 
+and were eventually able to resolve the issue.
 
 ## Testing: 
-
+We used print statements throughout to ensure that our requests were formatted 
+properly and that we were getting the responses that we were expecting.
 
 ## Contributions:
+Kimberly: implemented GET, response-parsing, sockets, and cookies and wrote the 
+README
 
+Tristan: implemented POST, log-in, formatting of HTTP requests, and 
+page-traversal
+
+We also utilized PRs to review each other's work and build off of one another's 
+ideas.

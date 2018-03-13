@@ -15,11 +15,11 @@ them; all three values are fields of the class. Next, the WebCrawler sends a
 POST request to log in and extracts the new session ID. Upon successfully 
 logging in, the WebCrawler creates a set of unvisited URLs. While this set is 
 not empty, the WebCrawler pops a URL and adds it to a visited set to avoid 
-loops, gets and parses the page, and checks for any keys if the page is valid. 
-When done, the list of secret keys is returned.
+loops, gets and parses the page, and checks for any secret keys if the page is 
+valid. When done, the list of secret keys is returned.
 
 ## Challenges: 
-One challenge that we ran into was with the cookies. We were managing them 
+One challenge that we ran into was with cookies. We were managing them 
 incorrectly at first, which resulted in us getting sent back to the log-in page 
 after logging in and following the 302 because the session was invalid. So, we 
 reworked our cookie logic, using print statements along the way to help debug, 

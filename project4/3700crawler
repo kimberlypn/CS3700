@@ -17,6 +17,19 @@ MAX_BYTES = 5000
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
+
+# -------------------------- HTTP UTILITY FUNCTIONS --------------------------
+
+def get_host_path(url):
+    """Returns the host and the path""" 
+    url = urlparse(url)
+    host = url.netloc
+    path = '/' if not url.path else url.path
+    if url.query:
+        path += '?' + url.query
+    return (host, path)
+
+
 def make_http(type, path, headers={}, body=''):
     """Formats an HTTP request"""
     msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
@@ -31,17 +44,40 @@ def make_http(type, path, headers={}, body=''):
 def format_query(form):
     """Formats the query string of a POST request"""
     c = lambda s: s.strip().replace(' ', '+')
-    return '&'.join(['='.join((c(key), c(value))) for key, value in form.items()])
+    query = '&'.join(['='.join((c(key), c(value))) 
+        for key, value in form.items()])
+    return query
 
 
-def get_host_path(url):
-    """Returns the host and the path"""
-    url = urlparse(url)
-    host = url.netloc
-    path = '/' if not url.path else url.path
-    if url.query:
-        path += '?' + url.query
-    return (host, path)
+def parse_response(data):
+    """Returns a dict of the headers and HTML"""
+    response = {}
+    data = data.split(CRLF * 2, 1)
+    # Get the headers
+    headers = data[0]
+
+    # Add the status code and message
+    status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
+    response['Status Code'] = int(status.group(2)) if status else None
+    response['Status Message'] = status.group(3) if status else None
+
+    # Add the remaining headers; ignore the cookies since these
+    # are already saved as fields
+    headers = headers.split(CRLF)[1:]
+    for h in headers:
+        header = h.split(': ')
+        if header[0] == 'Set-Cookie':
+            continue
+        else:
+            response[header[0]] = header[1]
+
+    # Add the HTML
+    response['HTML'] = data[1] if len(data) > 1 else None
+
+    # Return the dict
+    return response
+
+# ----------------------- END OF HTTP UTILITY FUNCTIONS ----------------------
 
 
 class WebCrawler:
@@ -88,34 +124,6 @@ class WebCrawler:
         sock.close()
         # Return the data
         return data
-
-    def parse_response(self, data):
-        """Returns a dict of the headers and HTML"""
-        response = {}
-        data = data.split(CRLF * 2, 1)
-        # Get the headers
-        headers = data[0]
-
-        # Add the status code and message
-        status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
-        response['Status Code'] = int(status.group(2)) if status else None
-        response['Status Message'] = status.group(3) if status else None
-
-        # Add the remaining headers; ignore the cookies since these
-        # are already saved as fields
-        headers = headers.split(CRLF)[1:]
-        for h in headers:
-            header = h.split(': ')
-            if header[0] == 'Set-Cookie':
-                continue
-            else:
-                response[header[0]] = header[1]
-
-        # Add the HTML
-        response['HTML'] = data[1] if len(data) > 1 else None
-
-        # Return the dict
-        return response
 
     def GET(self, url):
         """Implements the HTTP GET method"""
@@ -181,7 +189,7 @@ class WebCrawler:
             login_form, 'session ID').group(1)
 
         # Parse the log-in form
-        login_form = self.parse_response(login_form)
+        login_form = parse_response(login_form)
 
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != 200:
@@ -193,20 +201,23 @@ class WebCrawler:
         """Traverses to the given url"""
         # Get and parse the page
         page = self.GET(url)
-        page = self.parse_response(page)
+        page = parse_response(page)
         print(page)
 
         # Handle codes 403 (Forbidden) and 404 (Not Found)
         if page['Status Code'] in (403, 404):
             return None
-
+        
+        # Handle codes 301 (Moved Permanently), 302 (Found),
+        # and 500 (Internal Server Error)
         new_url = url
         while page['Status Code'] in (301, 302, 500):
+            # Get the next page if applicable
             if page['Status Code'] in (301, 302):
                 print(page)
                 new_url = page['Location']
             page = self.GET(new_url)
-            page = self_parse_response(page)
+            page = parse_response(page)
         return page
 
     def login(self):
@@ -230,47 +241,61 @@ class WebCrawler:
             login_resp, 'session ID').group(1)
 
         # Parse the POST response
-        login_resp = self.parse_response(login_resp)
+        login_resp = parse_response(login_resp)
 
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != 302:
             print('Unable to log in')
             exit(1)
 
+        # Return the next page after logging in
         return self.traverse_to(login_resp['Location'])
 
+
 def get_linkset(origin, page):
+    """Returns the set of links on the page"""
     matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
     for match in matches:
         print(match)
     return set()
 
+
 def hunt_key(page):
+    """Searches the page for secret keys"""
     return None
+
 
 def crawl(crawler):
     """Runs the web crawler"""
-    visited = set()
-    unvisited = set()
-    secret_keys = []
+    visited = set() # Set of visited pages
+    unvisited = set() # Set of univisited pages
+    secret_keys = [] # List of secret keys
 
+    # Get the home page after logging in
     login_page = crawler.login()
     print(login_page)
+    # Get the set of unvisited links on the home page
     unvisited = get_linkset(ROOT, login_page)
 
+    # Loop until all pages have been visited
     while len(unvisited) is not 0:
         url = unvisited.pop()
         visited.add(url)
 
+        # Go to the next unvisited page
         page = crawler.traverse_to(url)
+        # Skip if the page does not exist
         if page is None:
             continue
+        # Add any secret keys if found
         secret_key = hunt_key(page)
         if secret_key:
             secret_keys.append(secret_key)
 
+        # Update unvisited
         unvisited |= (get_linkset(ROOT, page) - visited)
     print(visited)
+    # Return the list of secret keys
     return secret_keys
 
 

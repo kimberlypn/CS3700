@@ -9,7 +9,7 @@ import re
 # Root page for Fakebook
 ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
-LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/'
 # Carriage return, line feed
 CRLF = '\r\n'
 # Maximum amount of data to be received at once from the socket
@@ -18,6 +18,7 @@ MAX_BYTES = 5000
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
 def make_http(type, path, headers={}, body=''):
+    """Formats an HTTP request"""
     msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
     for key, value in headers.items():
         if value:
@@ -26,18 +27,22 @@ def make_http(type, path, headers={}, body=''):
     msg += body + CRLF
     return msg
 
-def make_formstr(form):
+
+def format_query(form):
+    """Formats the query string of a POST request"""
     c = lambda s: s.strip().replace(' ', '+')
     return '&'.join(['='.join((c(key), c(value))) for key, value in form.items()])
 
+
 def get_host_path(url):
-    # Parse the URL and retrieve the necessary fields
+    """Returns the host and the path"""
     url = urlparse(url)
     host = url.netloc
     path = '/' if not url.path else url.path
     if url.query:
         path += '?' + url.query
     return (host, path)
+
 
 class WebCrawler:
     def __init__(self, username, password):
@@ -47,15 +52,20 @@ class WebCrawler:
         self.session = None # Initialize session ID to None
         self.cookie = '' # Initialize cookie to an empty string
 
-    def set_cookie(self):
+    def set_cookie(self, headers):
         """Generates a cookie using the CSRF token and the session ID"""
-        if self.csrf:
-            self.cookie += 'csrftoken=' + self.csrf
-        if self.session:
-            if self.csrf:
-                self.cookie += '; '
-            self.cookie += 'sessionid=' + self.session
+        # Set the CSRF token and session ID
+        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
+        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
+        # Exit if there is the CSRF token or session ID could not be found
+        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
+        self.session = session_id.group(1) if session_id else self.session
 
+        # Set the cookie
+        csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
+        session_id = 'sessionid=' + self.session if self.session else None
+        self.cookie = '; '.join(filter(None, [csrf_token, session_id]))
+ 
     def connect(self, host):
         """Creates and connects a socket"""
         # Set up the socket
@@ -81,8 +91,40 @@ class WebCrawler:
             except:
                 break
         # Close the socket
-        sock.close()
+        sock.close() 
+        # Return the data
         return data
+
+    def parse_response(self, data):
+        """Returns a dict of the headers and HTML"""
+        response = {}
+        data = data.split(CRLF * 2, 1)
+        # Get the headers
+        headers = data[0]
+
+        # Add the status code and message
+        status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
+        response['Status Code'] = status.group(2) if status else None
+        response['Status Message'] = status.group(3) if status else None
+
+        # Set the CSRF token, session ID, and cookie
+        self.set_cookie(headers)
+
+        # Add the remaining headers; ignore the cookies since these
+        # are already saved as fields
+        headers = headers.split(CRLF)[1:]
+        for h in headers:
+            header = h.split(': ')
+            if header[0] == 'Set-Cookie':
+                continue
+            else:
+                response[header[0]] = header[1]
+
+        # Add the HTML
+        response['HTML'] = data[1] if len(data) > 1 else None
+
+        # Return the dict
+        return response
 
     def GET(self, url):
         """Implements the HTTP GET method"""
@@ -91,14 +133,22 @@ class WebCrawler:
 
         # Send the request
         sock = self.connect(host)
-        sock.send(str.encode(make_http('GET', path, {'cookie': self.cookie, 'host':host})))
+        headers = {
+            'Host': host,
+            'Origin': ROOT,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': LOGIN_FORM + '?next=/fakebook/',
+            'Cookie': self.cookie
+        }
+        request = make_http('GET', path, headers)
+        sock.send(str.encode(request))
 
-        # Get the response
+        # Return the parsed response
         resp = self.get_response(sock)
-
+        resp = self.parse_response(resp)
         return resp
 
-    def POST(self, url, body):
+    def POST(self, referer, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
         host, path = get_host_path(url)
@@ -106,43 +156,47 @@ class WebCrawler:
         # Send the request
         sock = self.connect(host)
         headers = {
-            'cookie': self.cookie,
-            'host': host,
-            'content-length': str(len(body)),
-            'content-type': 'application/x-www-form-urlencoded'
+            'Host': host,
+            'Content-Length': str(len(body)),
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'http://' + get_host_path(referer)[0],
+            'Referer': referer.split('?')[0],
+            'Cookie': self.cookie
         }
-        sock.send(str.encode(make_http('POST', path, headers, body)))
+        request = make_http('POST', path, headers, body)
+        sock.send(str.encode(request))
 
-        # Get the response
+        # Return the parsed response
         resp = self.get_response(sock)
-
+        resp = self.parse_response(resp)
         return resp
 
     def login(self):
         """Logs into Fakebook"""
+        # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
-        match = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', login_form)
-        if (not match):
-            print('Couldn\'t extract CSRF token, aborting')
-            print(login_form)
-            exit(1)
-        self.csrf = match.group(1)
-        match = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', login_form)
-        if (not match):
-            print('Couldn\'t extract SessionID token, aborting')
-            print(login_form)
-            exit(1)
-        self.session = match.group(1)
 
-        self.set_cookie()
+        # Exit if the GET request was unsuccessful
+        if login_form['Status Code'] != str(200):
+            print('Unable to get log-in form')
+            exit(1)
 
-        login_resp = self.POST(LOGIN_FORM, make_formstr({
+        # Log in using the given credentials
+        query = {
             'username': self.username,
             'password': self.password,
             'csrfmiddlewaretoken': self.csrf,
             'submit': 'Log in',
-            'next': '/fakebook/'
-        }))
+            'next': r'%2Ffakebook%2F'
+        }
+        body = format_query(query)
+        login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
+
+        # Exit if the WebCrawler was unable to log in
+        if login_resp['Status Code'] != str(302):
+            print('Unable to log in')
+            exit(1)
+
         print(login_resp)
 
 

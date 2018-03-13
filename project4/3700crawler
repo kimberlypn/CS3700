@@ -188,6 +188,26 @@ class WebCrawler:
             print('Unable to get log-in form')
             exit(1)
 
+    def traverse_to(self, url):
+        """Traverses to the given url"""
+        # Get and parse the page
+        page = self.GET(url)
+        page = self.parse_response(page)
+        print(page)
+
+        # Handle codes 403 (Forbidden) and 404 (Not Found) 
+        if page['Status Code'] in (403, 404):
+            return None
+
+        new_url = url
+        while page['Status Code'] in (301, 302, 500):
+            if page['Status Code'] in (301, 302):
+                print(page)
+                new_url = page['Location']
+            page = self.GET(new_url)
+            page = self_parse_response(page)
+        return page
+
     def login(self):
         """Logs into Fakebook"""
         # Get the log-in form
@@ -216,7 +236,7 @@ class WebCrawler:
             print('Unable to log in')
             exit(1)
 
-        print(login_resp)
+        return self.traverse_to(login_resp['Location'])
 
 
 def crawl(crawler):

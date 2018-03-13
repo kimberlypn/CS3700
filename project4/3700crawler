@@ -9,7 +9,7 @@ import re
 # Root page for Fakebook
 ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
-LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/'
 # Carriage return, line feed
 CRLF = '\r\n'
 # Maximum amount of data to be received at once from the socket
@@ -135,6 +135,9 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
+            'Origin': ROOT,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': LOGIN_FORM + '?next=/fakebook/',
             'Cookie': self.cookie
         }
         request = make_http('GET', path, headers)
@@ -145,7 +148,7 @@ class WebCrawler:
         resp = self.parse_response(resp)
         return resp
 
-    def POST(self, url, body):
+    def POST(self, referer, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
         host, path = get_host_path(url)
@@ -156,6 +159,8 @@ class WebCrawler:
             'Host': host,
             'Content-Length': str(len(body)),
             'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'http://' + get_host_path(referer)[0],
+            'Referer': referer.split('?')[0],
             'Cookie': self.cookie
         }
         request = make_http('POST', path, headers, body)
@@ -182,10 +187,10 @@ class WebCrawler:
             'password': self.password,
             'csrfmiddlewaretoken': self.csrf,
             'submit': 'Log in',
-            'next': '/fakebook/'
+            'next': r'%2Ffakebook%2F'
         }
         body = format_query(query)
-        login_resp = self.POST(LOGIN_FORM, body)
+        login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
 
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != str(302):

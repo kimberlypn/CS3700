@@ -34,7 +34,7 @@ class WebCrawler:
         cookie = '; '.join(filter(None, [csrf_token, session_id]))
         return cookie
 
-    def get_host_path(url):
+    def get_host_path(self, url):
         """Returns the host and the path"""
         url = urlparse(url)
         host = url.netloc
@@ -53,7 +53,7 @@ class WebCrawler:
         # Return the socket
         return sock
 
-    def make_http(type, path, headers={}, body=''):
+    def make_http(self, type, path, headers={}, body=''):
         """Formats an HTTP request"""
         msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
         for key, value in headers.items():
@@ -85,7 +85,7 @@ class WebCrawler:
     def GET(self, url):
         """Implements the HTTP GET method"""
         # Parse the URL and retrieve the necessary fields
-        host, path = get_host_path(url)
+        host, path = self.get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
@@ -96,14 +96,14 @@ class WebCrawler:
             'Referer': LOGIN_FORM + '?next=/fakebook/',
             'Cookie': self.cookie
         }
-        request = make_http('GET', path, headers)
+        request = self.make_http('GET', path, headers)
         sock.send(str.encode(request))
 
         # Get and return the response
         resp = self.get_response(sock)
         return resp
 
-    def format_query(form):
+    def format_query(self, form):
         """Formats the query string of a POST request"""
         c = lambda s: s.strip().replace(' ', '+')
         query = '&'.join(['='.join((c(key), c(value))) 
@@ -113,7 +113,7 @@ class WebCrawler:
     def POST(self, referer, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
-        host, path = get_host_path(url)
+        host, path = self.get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
@@ -121,11 +121,11 @@ class WebCrawler:
             'Host': host,
             'Content-Length': str(len(body)),
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Origin': 'http://' + get_host_path(referer)[0],
+            'Origin': 'http://' + self.get_host_path(referer)[0],
             'Referer': referer.split('?')[0],
             'Cookie': self.cookie
         }
-        request = make_http('POST', path, headers, body)
+        request = self.make_http('POST', path, headers, body)
         sock.send(str.encode(request))
 
         # Get and return the response
@@ -225,7 +225,7 @@ class WebCrawler:
             'submit': 'Log in',
             'next': r'%2Ffakebook%2F'
         }
-        body = format_query(query)
+        body = self.format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
 
         # Set the session ID if found

@@ -98,7 +98,7 @@ class WebCrawler:
     def parse_response(self, data):
         """Returns a dict of the headers and HTML"""
         response = {}
-        data = data.split(CRLF + CRLF)
+        data = data.split(CRLF * 2, 1)
         # Get the headers
         headers = data[0]
 
@@ -168,7 +168,7 @@ class WebCrawler:
         """Logs into Fakebook"""
         # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
-        
+       
         # Loop until the form has been successfully retrieved
         while login_form['Status Code'] != str(200):
             login_form = self.GET(LOGIN_FORM)

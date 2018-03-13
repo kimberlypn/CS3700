@@ -58,11 +58,8 @@ class WebCrawler:
         csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
         session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
         # Exit if there is the CSRF token or session ID could not be found
-        if not csrf_token or session_id:
-            print('Couldn\'t extract CSRF token or session ID. Aborting.')
-            exit(1)
-        self.csrf = csrf_token.group(1)
-        self.session = session_id.group(1)
+        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
+        self.session = session_id.group(1) if session_id else self.session
 
         # Set the cookie
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None

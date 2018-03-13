@@ -137,7 +137,8 @@ class WebCrawler:
             'Host': host,
             'Cookie': self.cookie
         }
-        sock.send(str.encode(make_http('GET', path, headers)))
+        request = make_http('GET', path, headers)
+        sock.send(str.encode(request))
 
         # Return the parsed response
         resp = self.get_response(sock)
@@ -157,7 +158,8 @@ class WebCrawler:
             'Content-Type': 'application/x-www-form-urlencoded',
             'Cookie': self.cookie
         }
-        sock.send(str.encode(make_http('POST', path, headers, body)))
+        request = make_http('POST', path, headers, body)
+        sock.send(str.encode(request))
 
         # Return the parsed response
         resp = self.get_response(sock)
@@ -168,7 +170,7 @@ class WebCrawler:
         """Logs into Fakebook"""
         # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
-       
+
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != str(200):
             print('Unable to get log-in form')

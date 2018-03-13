@@ -57,8 +57,12 @@ class WebCrawler:
         # Set the CSRF token and session ID
         csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
         session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
-        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
-        self.session = session_id.group(1) if session_id else self.session
+        # Exit if there is the CSRF token or session ID could not be found
+        if not csrf_token or session_id:
+            print('Couldn\'t extract CSRF token or session ID. Aborting.')
+            exit(1)
+        self.csrf = csrf_token.group(1)
+        self.session = session_id.group(1)
 
         # Set the cookie
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
@@ -134,8 +138,6 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
-            'Connection': 'keep-alive',
-            'Cookie': self.cookie
         }
         sock.send(str.encode(make_http('GET', path, headers)))
 
@@ -153,7 +155,6 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
-            'Connection': 'keep-alive',
             'Content-Length': str(len(body)),
             'Content-Type': 'application/x-www-form-urlencoded',
             'Cookie': self.cookie

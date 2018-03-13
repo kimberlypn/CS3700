@@ -135,6 +135,7 @@ class WebCrawler:
         sock = self.connect(host)
         headers = {
             'Host': host,
+            'Cookie': self.cookie
         }
         sock.send(str.encode(make_http('GET', path, headers)))
 

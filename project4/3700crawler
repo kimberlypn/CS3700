@@ -58,11 +58,11 @@ class WebCrawler:
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
         session_id = 'sessionid=' + self.session if self.session else None
         cookie = '; '.join(filter(None, [csrf_token, session_id]))
-        return cookie 
+        return cookie
 
     def connect(self, host):
         """Creates and connects a socket"""
-        # Set up the socket
+        #  up the socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.3)
         # Connect to the server on the HTTP port
@@ -85,7 +85,7 @@ class WebCrawler:
             except:
                 break
         # Close the socket
-        sock.close() 
+        sock.close()
         # Return the data
         return data
 
@@ -175,7 +175,7 @@ class WebCrawler:
         login_form = self.GET(LOGIN_FORM)
 
         # Set the CSRF token and session ID if found
-        self.csrf = self.check_cookie('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', 
+        self.csrf = self.check_cookie('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);',
             login_form, 'CSRF token').group(1)
         self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
             login_form, 'session ID').group(1)
@@ -187,6 +187,7 @@ class WebCrawler:
         if login_form['Status Code'] != 200:
             print('Unable to get log-in form')
             exit(1)
+        return login_form
 
     def traverse_to(self, url):
         """Traverses to the given url"""
@@ -195,7 +196,7 @@ class WebCrawler:
         page = self.parse_response(page)
         print(page)
 
-        # Handle codes 403 (Forbidden) and 404 (Not Found) 
+        # Handle codes 403 (Forbidden) and 404 (Not Found)
         if page['Status Code'] in (403, 404):
             return None
 
@@ -223,14 +224,14 @@ class WebCrawler:
         }
         body = format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
- 
+
         # Set the session ID if found
         self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
             login_resp, 'session ID').group(1)
- 
+
         # Parse the POST response
         login_resp = self.parse_response(login_resp)
- 
+
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != 302:
             print('Unable to log in')
@@ -238,10 +239,39 @@ class WebCrawler:
 
         return self.traverse_to(login_resp['Location'])
 
+def get_linkset(origin, page):
+    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
+    for match in matches:
+        print(match)
+    return set()
+
+def hunt_key(page):
+    return None
 
 def crawl(crawler):
     """Runs the web crawler"""
-    crawler.login()
+    visited = set()
+    unvisited = set()
+    secret_keys = []
+
+    login_page = crawler.login()
+    print(login_page)
+    unvisited = get_linkset(ROOT, login_page)
+
+    while len(unvisited) is not 0:
+        url = unvisited.pop()
+        visited.add(url)
+
+        page = crawler.traverse_to(url)
+        if page is None:
+            continue
+        secret_key = hunt_key(page)
+        if secret_key:
+            secret_keys.append(secret_key)
+
+        unvisited |= (get_linkset(ROOT, page) - visited)
+    print(visited)
+    return secret_keys
 
 
 if __name__ == '__main__':

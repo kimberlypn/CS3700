@@ -18,22 +18,7 @@ MAX_BYTES = 5000
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
 
-class WebCrawler:
-    def __init__(self, username, password):
-        self.username = username # Username given by the user
-        self.password = password # Password given by the user
-        self.csrf = None # Initialize CSRF token to None
-        self.session = None # Initialize session ID to None
-
-    @property
-    def cookie(self):
-        """Generates a cookie using the CSRF token and the session ID"""
-        cookie = ''
-        csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
-        session_id = 'sessionid=' + self.session if self.session else None
-        cookie = '; '.join(filter(None, [csrf_token, session_id]))
-        return cookie
-
+class HTTPUtils:
     def get_host_path(self, url):
         """Returns the host and the path"""
         url = urlparse(url)
@@ -42,16 +27,6 @@ class WebCrawler:
         if url.query:
             path += '?' + url.query
         return (host, path)
-
-    def connect(self, host):
-        """Creates and connects a socket"""
-        # Set up the socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.3)
-        # Connect to the server on the HTTP port
-        sock.connect((host, 80))
-        # Return the socket
-        return sock
 
     def make_http(self, type, path, headers={}, body=''):
         """Formats an HTTP request"""
@@ -63,83 +38,12 @@ class WebCrawler:
         msg += body + CRLF
         return msg
 
-    def get_response(self, sock):
-        """Returns the data retrieved from the socket"""
-        data = ''
-        while True:
-            try:
-                new_data = sock.recv(MAX_BYTES)
-                # Exit the loop if all of the data has been retrieved
-                if not new_data:
-                    break
-                # Else, append the retrieved data
-                else:
-                    data += new_data.rstrip().decode()
-            except:
-                break
-        # Close the socket
-        sock.close()
-        # Return the data
-        return data
-
-    def GET(self, url):
-        """Implements the HTTP GET method"""
-        # Parse the URL and retrieve the necessary fields
-        host, path = self.get_host_path(url)
-
-        # Send the request
-        sock = self.connect(host)
-        headers = {
-            'Host': host,
-            'Origin': ROOT,
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': LOGIN_FORM + '?next=/fakebook/',
-            'Cookie': self.cookie
-        }
-        request = self.make_http('GET', path, headers)
-        sock.send(str.encode(request))
-
-        # Get and return the response
-        resp = self.get_response(sock)
-        return resp
-
     def format_query(self, form):
         """Formats the query string of a POST request"""
         c = lambda s: s.strip().replace(' ', '+')
         query = '&'.join(['='.join((c(key), c(value))) 
                             for key, value in form.items()])
         return query
-
-    def POST(self, referer, url, body):
-        """Implements the HTTP POST method"""
-        # Parse the URL and retrieve the necessary fields
-        host, path = self.get_host_path(url)
-
-        # Send the request
-        sock = self.connect(host)
-        headers = {
-            'Host': host,
-            'Content-Length': str(len(body)),
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Origin': 'http://' + self.get_host_path(referer)[0],
-            'Referer': referer.split('?')[0],
-            'Cookie': self.cookie
-        }
-        request = self.make_http('POST', path, headers, body)
-        sock.send(str.encode(request))
-
-        # Get and return the response
-        resp = self.get_response(sock)
-        return resp
-
-    def check_cookie(self, pattern, data, help_info):
-        """Returns the CSRF token or session ID if found; else exits"""
-        match = re.search(pattern, data)
-        if not match:
-            print('Couldn\'t extract ' + help_info + '. Aborting.')
-            exit(1)
-        else:
-            return match
 
     def parse_response(self, data):
         """Returns a dict of the headers and HTML"""
@@ -169,6 +73,105 @@ class WebCrawler:
         # Return the dict
         return response
 
+
+class WebCrawler:
+    def __init__(self, username, password):
+        self.username = username # Username given by the user
+        self.password = password # Password given by the user
+        self.csrf = None # Initialize CSRF token to None
+        self.session = None # Initialize session ID to None
+        self.helper = HTTPUtils() # helper for HTTP utility functions
+
+    @property
+    def cookie(self):
+        """Generates a cookie using the CSRF token and the session ID"""
+        cookie = ''
+        csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
+        session_id = 'sessionid=' + self.session if self.session else None
+        cookie = '; '.join(filter(None, [csrf_token, session_id]))
+        return cookie
+
+    def connect(self, host):
+        """Creates and connects a socket"""
+        # Set up the socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        # Connect to the server on the HTTP port
+        sock.connect((host, 80))
+        # Return the socket
+        return sock
+
+    def get_response(self, sock):
+        """Returns the data retrieved from the socket"""
+        data = ''
+        while True:
+            try:
+                new_data = sock.recv(MAX_BYTES)
+                # Exit the loop if all of the data has been retrieved
+                if not new_data:
+                    break
+                # Else, append the retrieved data
+                else:
+                    data += new_data.rstrip().decode()
+            except:
+                break
+        # Close the socket
+        sock.close()
+        # Return the data
+        return data
+
+    def GET(self, url):
+        """Implements the HTTP GET method"""
+        # Parse the URL and retrieve the necessary fields
+        host, path = self.helper.get_host_path(url)
+
+        # Send the request
+        sock = self.connect(host)
+        headers = {
+            'Host': host,
+            'Origin': ROOT,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': LOGIN_FORM + '?next=/fakebook/',
+            'Cookie': self.cookie
+        }
+        request = self.helper.make_http('GET', path, headers)
+        sock.send(str.encode(request))
+
+        # Get and return the response
+        resp = self.get_response(sock)
+        return resp
+
+    def POST(self, referer, url, body):
+        """Implements the HTTP POST method"""
+        # Parse the URL and retrieve the necessary fields
+        host, path = self.helper.get_host_path(url)
+
+        # Send the request
+        sock = self.connect(host)
+        headers = {
+            'Host': host,
+            'Content-Length': str(len(body)),
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'http://' + self.helper.get_host_path(referer)[0],
+            'Referer': referer.split('?')[0],
+            'Cookie': self.cookie
+        }
+        request = self.helper.make_http('POST', path, headers, body)
+        sock.send(str.encode(request))
+
+        # Get and return the response
+        resp = self.get_response(sock)
+        return resp
+
+    def check_cookie(self, pattern, data, help_info):
+        """Returns the CSRF token or session ID if found; else exits"""
+        match = re.search(pattern, data)
+        if not match:
+            print('Couldn\'t extract ' + help_info + '. Aborting.')
+            exit(1)
+        else:
+            return match
+
     def get_login_form(self):
         """Gets the log-in form and sets the cookie"""
         # Send a GET request
@@ -181,7 +184,7 @@ class WebCrawler:
             login_form, 'session ID').group(1)
 
         # Parse the log-in form
-        login_form = self.parse_response(login_form)
+        login_form = self.helper.parse_response(login_form)
 
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != 200:
@@ -193,7 +196,7 @@ class WebCrawler:
         """Traverses to the given url"""
         # Get and parse the page
         page = self.GET(url)
-        page = self.parse_response(page)
+        page = self.helper.parse_response(page)
         print(page)
 
         # Handle codes 403 (Forbidden) and 404 (Not Found)
@@ -209,7 +212,7 @@ class WebCrawler:
                 print(page)
                 new_url = page['Location']
             page = self.GET(new_url)
-            page = self_parse_response(page)
+            page = self.helper.parse_response(page)
         return page
 
     def login(self):
@@ -225,7 +228,7 @@ class WebCrawler:
             'submit': 'Log in',
             'next': r'%2Ffakebook%2F'
         }
-        body = self.format_query(query)
+        body = self.helper.format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
 
         # Set the session ID if found
@@ -233,7 +236,7 @@ class WebCrawler:
             login_resp, 'session ID').group(1)
 
         # Parse the POST response
-        login_resp = self.parse_response(login_resp)
+        login_resp = self.helper.parse_response(login_resp)
 
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != 302:

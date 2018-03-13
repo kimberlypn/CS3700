@@ -173,16 +173,13 @@ class WebCrawler:
         """Logs into Fakebook"""
         # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
-
         # Set the CSRF token and session ID if found
         self.csrf = self.check_cookie('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', 
             login_form, 'CSRF token').group(1)
         self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
             login_form, 'session ID').group(1)
-
         # Parse the log-in form
         login_form = self.parse_response(login_form)
-
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != str(200):
             print('Unable to get log-in form')
@@ -198,14 +195,11 @@ class WebCrawler:
         }
         body = format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
-
         # Set the session ID if found
         self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
             login_resp, 'session ID').group(1)
-
         # Parse the POST response
         login_resp = self.parse_response(login_resp)
-
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != str(302):
             print('Unable to log in')

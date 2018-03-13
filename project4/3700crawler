@@ -62,7 +62,7 @@ class WebCrawler:
 
     def connect(self, host):
         """Creates and connects a socket"""
-        # Set up the socket
+        #  up the socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.3)
         # Connect to the server on the HTTP port

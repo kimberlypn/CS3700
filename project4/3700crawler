@@ -77,19 +77,6 @@ def parse_response(data):
     # Return the dict
     return response
 
-
-def get_linkset(origin, page):
-    """Returns the set of links on the page"""
-    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
-    for match in matches:
-        print(match)
-    return set()
-
-
-def hunt_key(page):
-    """Searches the page for secret keys"""
-    return None
-
 # ----------------------- END OF HTTP UTILITY FUNCTIONS ----------------------
 
 
@@ -263,6 +250,19 @@ class WebCrawler:
 
         # Return the next page after logging in
         return self.traverse_to(login_resp['Location'])
+
+
+def get_linkset(origin, page):
+    """Returns the set of links on the page"""
+    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
+    for match in matches:
+        print(match)
+    return set()
+
+
+def hunt_key(page):
+    """Searches the page for secret keys"""
+    return None
 
 
 def crawl(crawler):

@@ -18,60 +18,79 @@ MAX_BYTES = 5000
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
 
-class HTTPUtils:
-    def get_host_path(self, url):
-        """Returns the host and the path"""
-        url = urlparse(url)
-        host = url.netloc
-        path = '/' if not url.path else url.path
-        if url.query:
-            path += '?' + url.query
-        return (host, path)
+# -------------------------- HTTP UTILITY FUNCTIONS --------------------------
 
-    def make_http(self, type, path, headers={}, body=''):
-        """Formats an HTTP request"""
-        msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
-        for key, value in headers.items():
-            if value:
-                msg += (': '.join((key, value)) + CRLF)
-        msg += CRLF
-        msg += body + CRLF
-        return msg
+def get_host_path(url):
+    """Returns the host and the path""" 
+    url = urlparse(url)
+    host = url.netloc
+    path = '/' if not url.path else url.path
+    if url.query:
+        path += '?' + url.query
+    return (host, path)
 
-    def format_query(self, form):
-        """Formats the query string of a POST request"""
-        c = lambda s: s.strip().replace(' ', '+')
-        query = '&'.join(['='.join((c(key), c(value))) 
-                            for key, value in form.items()])
-        return query
 
-    def parse_response(self, data):
-        """Returns a dict of the headers and HTML"""
-        response = {}
-        data = data.split(CRLF * 2, 1)
-        # Get the headers
-        headers = data[0]
+def make_http(type, path, headers={}, body=''):
+    """Formats an HTTP request"""
+    msg = '{0} {1} HTTP/1.1'.format(type, path) + CRLF
+    for key, value in headers.items():
+        if value:
+            msg += (': '.join((key, value)) + CRLF)
+    msg += CRLF
+    msg += body + CRLF
+    return msg
 
-        # Add the status code and message
-        status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
-        response['Status Code'] = int(status.group(2)) if status else None
-        response['Status Message'] = status.group(3) if status else None
 
-        # Add the remaining headers; ignore the cookies since these
-        # are already saved as fields
-        headers = headers.split(CRLF)[1:]
-        for h in headers:
-            header = h.split(': ')
-            if header[0] == 'Set-Cookie':
-                continue
-            else:
-                response[header[0]] = header[1]
+def format_query(form):
+    """Formats the query string of a POST request"""
+    c = lambda s: s.strip().replace(' ', '+')
+    query = '&'.join(['='.join((c(key), c(value))) 
+        for key, value in form.items()])
+    return query
 
-        # Add the HTML
-        response['HTML'] = data[1] if len(data) > 1 else None
 
-        # Return the dict
-        return response
+def parse_response(data):
+    """Returns a dict of the headers and HTML"""
+    response = {}
+    data = data.split(CRLF * 2, 1)
+    # Get the headers
+    headers = data[0]
+
+    # Add the status code and message
+    status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
+    response['Status Code'] = int(status.group(2)) if status else None
+    response['Status Message'] = status.group(3) if status else None
+
+    # Add the remaining headers; ignore the cookies since these
+    # are already saved as fields
+    headers = headers.split(CRLF)[1:]
+    for h in headers:
+        header = h.split(': ')
+        if header[0] == 'Set-Cookie':
+            continue
+        else:
+            response[header[0]] = header[1]
+
+    # Add the HTML
+    response['HTML'] = data[1] if len(data) > 1 else None
+
+    # Return the dict
+    return response
+
+
+def get_linkset(origin, page):
+    """Returns the set of links on the page"""
+    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
+    for match in matches:
+        print(match)
+    return set()
+
+
+def hunt_key(page):
+    """Searches the page for secret keys"""
+    return None
+
+# ----------------------- END OF HTTP UTILITY FUNCTIONS ----------------------
 
 
 class WebCrawler:
@@ -80,7 +99,6 @@ class WebCrawler:
         self.password = password # Password given by the user
         self.csrf = None # Initialize CSRF token to None
         self.session = None # Initialize session ID to None
-        self.helper = HTTPUtils() # helper for HTTP utility functions
 
     @property
     def cookie(self):
@@ -123,7 +141,7 @@ class WebCrawler:
     def GET(self, url):
         """Implements the HTTP GET method"""
         # Parse the URL and retrieve the necessary fields
-        host, path = self.helper.get_host_path(url)
+        host, path = get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
@@ -134,7 +152,7 @@ class WebCrawler:
             'Referer': LOGIN_FORM + '?next=/fakebook/',
             'Cookie': self.cookie
         }
-        request = self.helper.make_http('GET', path, headers)
+        request = make_http('GET', path, headers)
         sock.send(str.encode(request))
 
         # Get and return the response
@@ -144,7 +162,7 @@ class WebCrawler:
     def POST(self, referer, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
-        host, path = self.helper.get_host_path(url)
+        host, path = get_host_path(url)
 
         # Send the request
         sock = self.connect(host)
@@ -152,11 +170,11 @@ class WebCrawler:
             'Host': host,
             'Content-Length': str(len(body)),
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Origin': 'http://' + self.helper.get_host_path(referer)[0],
+            'Origin': 'http://' + get_host_path(referer)[0],
             'Referer': referer.split('?')[0],
             'Cookie': self.cookie
         }
-        request = self.helper.make_http('POST', path, headers, body)
+        request = make_http('POST', path, headers, body)
         sock.send(str.encode(request))
 
         # Get and return the response
@@ -184,7 +202,7 @@ class WebCrawler:
             login_form, 'session ID').group(1)
 
         # Parse the log-in form
-        login_form = self.helper.parse_response(login_form)
+        login_form = parse_response(login_form)
 
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != 200:
@@ -196,7 +214,7 @@ class WebCrawler:
         """Traverses to the given url"""
         # Get and parse the page
         page = self.GET(url)
-        page = self.helper.parse_response(page)
+        page = parse_response(page)
         print(page)
 
         # Handle codes 403 (Forbidden) and 404 (Not Found)
@@ -212,7 +230,7 @@ class WebCrawler:
                 print(page)
                 new_url = page['Location']
             page = self.GET(new_url)
-            page = self.helper.parse_response(page)
+            page = parse_response(page)
         return page
 
     def login(self):
@@ -228,7 +246,7 @@ class WebCrawler:
             'submit': 'Log in',
             'next': r'%2Ffakebook%2F'
         }
-        body = self.helper.format_query(query)
+        body = format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
 
         # Set the session ID if found
@@ -236,7 +254,7 @@ class WebCrawler:
             login_resp, 'session ID').group(1)
 
         # Parse the POST response
-        login_resp = self.helper.parse_response(login_resp)
+        login_resp = parse_response(login_resp)
 
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != 302:
@@ -245,19 +263,6 @@ class WebCrawler:
 
         # Return the next page after logging in
         return self.traverse_to(login_resp['Location'])
-
-
-def get_linkset(origin, page):
-    """Returns the set of links on the page"""
-    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
-    for match in matches:
-        print(match)
-    return set()
-
-
-def hunt_key(page):
-    """Searches the page for secret keys"""
-    return None
 
 
 def crawl(crawler):

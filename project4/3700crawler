@@ -9,7 +9,7 @@ import re
 # Root page for Fakebook
 ROOT = 'http://fring.ccs.neu.edu/fakebook/'
 # Log-in form for Fakebook
-LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+LOGIN_FORM = 'http://fring.ccs.neu.edu/accounts/login/'
 # Carriage return, line feed
 CRLF = '\r\n'
 # Maximum amount of data to be received at once from the socket
@@ -39,26 +39,37 @@ def get_host_path(url):
         path += '?' + url.query
     return (host, path)
 
+def get_status(page):
+    return int(re.match('HTTP/1.1\W+(\d{3})', page).group(1))
+
+def get_location(page):
+    match = re.search('[Ll]ocation:\W+([\w\./:]+)', page)
+    if not match:
+        print(page)
+    return match.group(1)
+
 class WebCrawler:
     def __init__(self, username, password):
         self.username = username # Username given by the user
         self.password = password # Password given by the user
         self.csrf = None # Initialize CSRF token to None
         self.session = None # Initialize session ID to None
-        self.cookie = '' # Initialize cookie to an empty string
 
-    def set_cookie(self):
+    @property
+    def cookie(self):
         """Generates a cookie using the CSRF token and the session ID"""
+        ret = ''
         if self.csrf:
-            self.cookie += 'csrftoken=' + self.csrf
+            ret += 'csrftoken=' + self.csrf
         if self.session:
             if self.csrf:
-                self.cookie += '; '
-            self.cookie += 'sessionid=' + self.session
+                ret += '; '
+            ret += 'sessionid=' + self.session
+        return ret
 
     def connect(self, host):
         """Creates and connects a socket"""
-        # Set up the socket
+        #  up the socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.3)
         # Connect to the server on the HTTP port
@@ -91,14 +102,23 @@ class WebCrawler:
 
         # Send the request
         sock = self.connect(host)
-        sock.send(str.encode(make_http('GET', path, {'cookie': self.cookie, 'host':host})))
+        headers = {
+            'cookie': self.cookie,
+            'host': host,
+            'origin': ROOT,
+            'user-agent:': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'referer': 'http://fring.ccs.neu.edu/accounts/login/?next=/fakebook/'
+        }
+        my_http = make_http('GET', path, headers)
+        print(my_http)
+        sock.send(str.encode(my_http))
 
         # Get the response
         resp = self.get_response(sock)
 
         return resp
 
-    def POST(self, url, body):
+    def POST(self, referer, url, body):
         """Implements the HTTP POST method"""
         # Parse the URL and retrieve the necessary fields
         host, path = get_host_path(url)
@@ -109,18 +129,38 @@ class WebCrawler:
             'cookie': self.cookie,
             'host': host,
             'content-length': str(len(body)),
-            'content-type': 'application/x-www-form-urlencoded'
+            'content-type': 'application/x-www-form-urlencoded',
+            'origin': 'http://'+get_host_path(referer)[0],
+            'referer': referer.split('?')[0]
         }
-        sock.send(str.encode(make_http('POST', path, headers, body)))
+        my_http = make_http('POST', path, headers, body)
+        print(my_http)
+        sock.send(str.encode(my_http))
 
         # Get the response
         resp = self.get_response(sock)
 
         return resp
 
+    def traverse_to(self, url):
+        page = self.GET(url)
+        print(page)
+
+        if get_status(page) in (403, 404):
+            return None
+
+        new_url = url
+        while get_status(page) in (301, 302, 500):
+            if get_status(page) in (301, 302):
+                print(page)
+                new_url = get_location(page)
+            page = self.GET(new_url)
+        return page
+
     def login(self):
         """Logs into Fakebook"""
         login_form = self.GET(LOGIN_FORM)
+        print(login_form)
         match = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', login_form)
         if (not match):
             print('Couldn\'t extract CSRF token, aborting')
@@ -134,21 +174,56 @@ class WebCrawler:
             exit(1)
         self.session = match.group(1)
 
-        self.set_cookie()
-
-        login_resp = self.POST(LOGIN_FORM, make_formstr({
+        login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, make_formstr({
             'username': self.username,
             'password': self.password,
             'csrfmiddlewaretoken': self.csrf,
             'submit': 'Log in',
-            'next': '/fakebook/'
+            'next': r'%2Ffakebook%2F'
         }))
         print(login_resp)
+        match = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', login_resp)
+        if (not match):
+            print('Couldn\'t extract SessionID token, aborting')
+            print(login_resp)
+            exit(1)
+        self.session = match.group(1)
 
+        return self.traverse_to(get_location(login_resp))
+
+def get_linkset(origin, page):
+    matches = re.findall('href=[\'"]([/\w]+)', page)
+    for match in matches:
+        print(match)
+    return set()
+
+def hunt_key(page):
+    return None
 
 def crawl(crawler):
     """Runs the web crawler"""
-    crawler.login()
+    visited = set()
+    unvisited = set()
+    secret_keys = []
+
+    login_page = crawler.login()
+    print(login_page)
+    unvisited = get_linkset(ROOT, login_page)
+
+    while len(unvisited) is not 0:
+        url = unvisited.pop()
+        visited.add(url)
+
+        page = crawler.traverse_to(url)
+        if page is None:
+            continue
+        secret_key = hunt_key(page)
+        if secret_key:
+            secret_keys.append(secret_key)
+
+        unvisited |= (get_linkset(ROOT, page) - visited)
+    print(visited)
+    return secret_keys
 
 
 if __name__ == '__main__':

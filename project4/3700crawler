@@ -169,9 +169,10 @@ class WebCrawler:
         # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
        
-        # Loop until the form has been successfully retrieved
-        while login_form['Status Code'] != str(200):
-            login_form = self.GET(LOGIN_FORM)
+        # Exit if the GET request was unsuccessful
+        if login_form['Status Code'] != str(200):
+            print('Unable to get log-in form')
+            exit(1)
 
         # Log in using the given credentials
         query = {
@@ -184,9 +185,10 @@ class WebCrawler:
         body = format_query(query)
         login_resp = self.POST(LOGIN_FORM, body)
 
-        # Loop until WebCrawler has successfully logged in
-        while login_resp['Status Code'] != str(302):
-            login_resp = self.POST(LOGIN_FORM, body)
+        # Exit if the WebCrawler was unable to log in
+        if login_resp['Status Code'] != str(302):
+            print('Unable to log in')
+            exit(1)
 
         print(login_resp)
 

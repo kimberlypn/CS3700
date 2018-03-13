@@ -98,7 +98,7 @@ class WebCrawler:
 
         # Add the status code and message
         status = re.search('(HTTP/1.1)\W(\d{3})\W(.+)', headers)
-        response['Status Code'] = status.group(2) if status else None
+        response['Status Code'] = int(status.group(2)) if status else None
         response['Status Message'] = status.group(3) if status else None
 
         # Add the remaining headers; ignore the cookies since these
@@ -184,7 +184,7 @@ class WebCrawler:
         login_form = self.parse_response(login_form)
 
         # Exit if the GET request was unsuccessful
-        if login_form['Status Code'] != str(200):
+        if login_form['Status Code'] != 200:
             print('Unable to get log-in form')
             exit(1)
 
@@ -212,7 +212,7 @@ class WebCrawler:
         login_resp = self.parse_response(login_resp)
  
         # Exit if the WebCrawler was unable to log in
-        if login_resp['Status Code'] != str(302):
+        if login_resp['Status Code'] != 302:
             print('Unable to log in')
             exit(1)
 

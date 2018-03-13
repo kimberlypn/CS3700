@@ -50,22 +50,16 @@ class WebCrawler:
         self.password = password # Password given by the user
         self.csrf = None # Initialize CSRF token to None
         self.session = None # Initialize session ID to None
-        self.cookie = '' # Initialize cookie to an empty string
 
-    def set_cookie(self, headers):
+    @property
+    def cookie(self):
         """Generates a cookie using the CSRF token and the session ID"""
-        # Set the CSRF token and session ID
-        csrf_token = re.search('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', headers)
-        session_id = re.search('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);', headers)
-        # Exit if there is the CSRF token or session ID could not be found
-        self.csrf = csrf_token.group(1) if csrf_token else self.csrf
-        self.session = session_id.group(1) if session_id else self.session
-
-        # Set the cookie
+        cookie = ''
         csrf_token = 'csrftoken=' + self.csrf if self.csrf else None
         session_id = 'sessionid=' + self.session if self.session else None
-        self.cookie = '; '.join(filter(None, [csrf_token, session_id]))
- 
+        cookie = '; '.join(filter(None, [csrf_token, session_id]))
+        return cookie 
+
     def connect(self, host):
         """Creates and connects a socket"""
         # Set up the socket
@@ -107,9 +101,6 @@ class WebCrawler:
         response['Status Code'] = status.group(2) if status else None
         response['Status Message'] = status.group(3) if status else None
 
-        # Set the CSRF token, session ID, and cookie
-        self.set_cookie(headers)
-
         # Add the remaining headers; ignore the cookies since these
         # are already saved as fields
         headers = headers.split(CRLF)[1:]
@@ -143,9 +134,8 @@ class WebCrawler:
         request = make_http('GET', path, headers)
         sock.send(str.encode(request))
 
-        # Return the parsed response
+        # Get and return the response
         resp = self.get_response(sock)
-        resp = self.parse_response(resp)
         return resp
 
     def POST(self, referer, url, body):
@@ -166,15 +156,32 @@ class WebCrawler:
         request = make_http('POST', path, headers, body)
         sock.send(str.encode(request))
 
-        # Return the parsed response
+        # Get and return the response
         resp = self.get_response(sock)
-        resp = self.parse_response(resp)
         return resp
+
+    def check_cookie(self, pattern, data, help_info):
+        """Returns the CSRF token or session ID if found; else exits"""
+        match = re.search(pattern, data)
+        if not match:
+            print('Couldn\'t extract ' + help_info + '. Aborting.')
+            exit(1)
+        else:
+            return match
 
     def login(self):
         """Logs into Fakebook"""
         # Get the log-in form
         login_form = self.GET(LOGIN_FORM)
+
+        # Set the CSRF token and session ID if found
+        self.csrf = self.check_cookie('[Ss]et-[Cc]ookie:\W*csrftoken=(\w+);', 
+            login_form, 'CSRF token').group(1)
+        self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
+            login_form, 'session ID').group(1)
+
+        # Parse the log-in form
+        login_form = self.parse_response(login_form)
 
         # Exit if the GET request was unsuccessful
         if login_form['Status Code'] != str(200):
@@ -191,6 +198,13 @@ class WebCrawler:
         }
         body = format_query(query)
         login_resp = self.POST(LOGIN_FORM, LOGIN_FORM, body)
+
+        # Set the session ID if found
+        self.session = self.check_cookie('[Ss]et-[Cc]ookie:\W*sessionid=(\w+);',
+            login_resp, 'session ID').group(1)
+
+        # Parse the POST response
+        login_resp = self.parse_response(login_resp)
 
         # Exit if the WebCrawler was unable to log in
         if login_resp['Status Code'] != str(302):

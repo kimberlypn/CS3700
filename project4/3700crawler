@@ -3,6 +3,7 @@ import argparse
 from urllib.parse import urlparse
 import socket
 import re
+from html.parser import HTMLParser
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
@@ -202,7 +203,6 @@ class WebCrawler:
         # Get and parse the page
         page = self.GET(url)
         page = parse_response(page)
-        print(page)
 
         # Handle codes 403 (Forbidden) and 404 (Not Found)
         if page['Status Code'] in (403, 404):
@@ -214,7 +214,6 @@ class WebCrawler:
         while page['Status Code'] in (301, 302, 500):
             # Get the next page if applicable
             if page['Status Code'] in (301, 302):
-                print(page)
                 new_url = page['Location']
             page = self.GET(new_url)
             page = parse_response(page)
@@ -254,9 +253,9 @@ class WebCrawler:
 
 def get_linkset(origin, page):
     """Returns the set of links on the page"""
-    matches = re.findall('href=[\'"]([/\w]+)', page['HTML'])
-    for match in matches:
-        print(match)
+    matches = re.findall('href="/fakebook/(\d+?/)">', page['HTML'])
+    for m in matches:
+        print(m)
     return set()
 
 
@@ -273,7 +272,7 @@ def crawl(crawler):
 
     # Get the home page after logging in
     login_page = crawler.login()
-    print(login_page)
+
     # Get the set of unvisited links on the home page
     unvisited = get_linkset(ROOT, login_page)
 
@@ -294,7 +293,6 @@ def crawl(crawler):
 
         # Update unvisited
         unvisited |= (get_linkset(ROOT, page) - visited)
-    print(visited)
     # Return the list of secret keys
     return secret_keys
 

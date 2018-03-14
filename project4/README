@@ -14,9 +14,10 @@ token and session ID from the response and generates the cookie string from
 them; all three values are fields of the class. Next, the WebCrawler sends a 
 POST request to log in and extracts the new session ID. Upon successfully 
 logging in, the WebCrawler creates a set of unvisited URLs. While this set is 
-not empty, the WebCrawler pops a URL and adds it to a visited set to avoid 
-loops, gets and parses the page, and checks for any secret keys if the page is 
-valid. When done, the list of secret keys is returned.
+not empty and the five secret keys have not yet been found, the WebCrawler pops 
+a URL and adds it to a visited set to avoid loops, gets and parses the page, 
+and checks for any secret keys if the page is valid. When done, the secret keys 
+are printed.
 
 ## Challenges: 
 One challenge that we ran into was with cookies. We were managing them 
@@ -30,11 +31,11 @@ We used print statements throughout to ensure that our requests were formatted
 properly and that we were getting the responses that we were expecting.
 
 ## Contributions:
-Kimberly: implemented GET, response-parsing, sockets, and cookies and wrote the 
-README
+Kimberly: implemented GET, response-parsing, sockets, cookies, and logic for 
+finding keys and wrote the README
 
 Tristan: implemented POST, log-in, formatting of HTTP requests, and 
-page-traversal
+page traversal while handling loops
 
 We also utilized PRs to review each other's work and build off of one another's 
 ideas.

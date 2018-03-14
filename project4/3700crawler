@@ -253,7 +253,7 @@ class WebCrawler:
 
 def get_linkset(origin, page):
     """Returns the set of links on the page"""
-    matches = re.findall('href="/fakebook/(\d+?/)">', page['HTML'])
+    matches = re.findall('href="/fakebook/([/\w]+)', page['HTML'])
     for m in matches:
         print(m)
     return set()

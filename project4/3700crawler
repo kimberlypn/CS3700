@@ -3,7 +3,6 @@ import argparse
 from urllib.parse import urlparse
 import socket
 import re
-from html.parser import HTMLParser
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 

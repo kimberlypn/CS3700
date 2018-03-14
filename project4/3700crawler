@@ -252,16 +252,16 @@ class WebCrawler:
 
 
 def get_linkset(origin, page):
-    """Returns the set of links on the page"""
+    """Returns the set of Fakebook links on the page"""
     matches = re.findall('href="/fakebook/([/\w]+)', page['HTML'])
-    for m in matches:
-        print(m)
-    return set()
+    return set(matches)
 
 
 def hunt_key(page):
     """Searches the page for secret keys"""
-    return None
+    flags = re.findall('<h2 class=\'secret_flag\'.+>FLAG: ([a-zA-Z0-9]{64})', 
+        page['HTML'])
+    return flags
 
 
 def crawl(crawler):
@@ -277,19 +277,21 @@ def crawl(crawler):
     unvisited = get_linkset(ROOT, login_page)
 
     # Loop until all pages have been visited
-    while len(unvisited) is not 0:
-        url = unvisited.pop()
+    while len(unvisited) > 0 and len(secret_keys) != 5:
+        url = ROOT + unvisited.pop()
         visited.add(url)
 
         # Go to the next unvisited page
         page = crawler.traverse_to(url)
+
         # Skip if the page does not exist
         if page is None:
             continue
+
         # Add any secret keys if found
         secret_key = hunt_key(page)
         if secret_key:
-            secret_keys.append(secret_key)
+            secret_keys += secret_key
 
         # Update unvisited
         unvisited |= (get_linkset(ROOT, page) - visited)

@@ -2,10 +2,12 @@
 import argparse
 import collections
 import logging
+import select
 import socket
 import re
 import time
 from urllib.parse import urlparse
+import weakref
 
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
@@ -146,29 +148,33 @@ class HTTPResponse:
 # ----------------------- END OF HTTP UTILITY FUNCTIONS ----------------------
 
 
-class HTTPManager:
+class HTTPSession:
     def __init__(self):
         self.sock = None
         self.count = 0
-        self.cookies = {}
-
-    @property
-    def cookie(self):
-        """Stringify the cookie dictionary"""
-        return '; '.join(['='.join((key, value))
-                                for key, value in self.cookies.items()])
 
     def connect(self, host):
         """Creates and connects a socket"""
         # Set up the socket
+        logging.info('Opening HTTP socket to host ' + host)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, 80))
+        self.sock.settimeout(0.3)
+
+    def send(self, http_request):
         if self.sock is None:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            logging.info('Opening HTTP socket to host ' + host)
-            self.sock.connect((host, 80))
-            self.sock.settimeout(0.3)
-            self.count = 0
+            self.connect(http_request.http_address.host)
         else:
             self.count += 1
+        self.sock.send(http_request.dumps().encode())
+
+    def has_response(self):
+        if self.sock is None:
+            return False
+        poll = select.poll()
+        poll.register(self.sock.fileno(), select.POLLIN)
+        event_list = poll.poll(0)
+        return len(event_list)
 
     def get_response(self):
         """Returns the data retrieved from the socket"""
@@ -192,28 +198,77 @@ class HTTPManager:
 
         return resp
 
+
+class HTTPManager:
+    def __init__(self):
+        self.http_session = HTTPSession()
+        self.cookies = {}
+
+    @property
+    def cookie(self):
+        """Stringify the cookie dictionary"""
+        return '; '.join(['='.join((key, value))
+                                for key, value in self.cookies.items()])
+
     def request(self, http_request):
         """Makes a HTTP request"""
-        http_request.headers.update({
-            'Connection': 'keep-alive'
-        })
+        http_request.headers['Connection'] = 'keep-alive'
         if self.cookie:
-            http_request.headers.update({ 'Cookie': self.cookie })
+            http_request.headers['Cookie'] = self.cookie
 
-        self.connect(http_request.http_address.host)
-
-        try:
-            self.sock.send(http_request.dumps().encode())
-            http_response = self.get_response()
-        except:
-            logging.error('Exception while ' + http_request.method + ' ' + http_request.http_address.url)
-            raise
-
-        logging.debug(http_request.method + ' ' + http_request.http_address.url + '->' + str(http_response.code))
+        self.http_session.send(http_request)
+        http_response = self.http_session.get_response()
 
         self.cookies.update(http_response.cookies)
-
         return http_response
+
+
+class HydraPromise:
+    def __init__(self, session, hydra_manager):
+        self.session = session
+        self.manager = weakref.ref(hydra_manager)
+
+    def is_ready(self):
+        if self.session is None:
+            return False
+        else:
+            return self.session.has_response()
+
+    def resolve(self):
+        if self.session is None:
+            return None
+        manager = self.manager()
+
+        response = self.session.get_response()
+        if manager is not None:
+            manager._sessions.append(self.session)
+            manager.cookies.update(response.cookies)
+
+        return response
+
+
+class HydraManager:
+    def __init__(self):
+        self._sessions = []
+        self.cookies = {}
+
+    @property
+    def cookie(self):
+        """Stringify the cookie dictionary"""
+        return '; '.join(['='.join((key, value))
+                                for key, value in self.cookies.items()])
+
+    def request(self, http_request):
+        """Makes a HTTP request"""
+        http_request.headers['Connection'] = 'keep-alive'
+        if self.cookie:
+            http_request.headers['Cookie'] = self.cookie
+
+        http_session = self._sessions.pop() if self._sessions else HTTPSession()
+
+        http_session.send(http_request)
+
+        return HydraPromise(http_session, self)
 
 
 class WebCrawler:
@@ -283,6 +338,106 @@ class WebCrawler:
             data)
         return flags
 
+    def crawl(self):
+        """Runs the web crawler"""
+        visited = set() # Set of visited pages
+        unvisited = set() # Set of univisited pages
+        secret_keys = [] # List of secret keys
+
+        # Get the home page after logging in
+        login_page = self.login()
+
+        # Get the set of unvisited links on the home page
+        unvisited = self.get_linkset(login_page.body)
+
+        # Loop until all of the secret keys have been found
+        while len(unvisited) > 0 and len(secret_keys) != 5:
+            url = unvisited.pop()
+            visited.add(url)
+
+            # Go to the next unvisited page
+            page = crawler.traverse_to(HTTPAddress(ROOT + url))
+
+            # Skip if the page does not exist
+            if page is None:
+                continue
+
+            # Add any secret keys if found
+            secret_key = self.hunt_key(page.body)
+            if secret_key:
+                secret_keys += secret_key
+
+            # Update unvisited
+            unvisited |= (self.get_linkset(page.body) - visited)
+        return secret_keys
+
+
+class HydraCrawler:
+    def __init__(self, username, password):
+        self.username = username
+        self.password = password
+        self.http_manager = HydraManager()
+
+    def get_login_form(self):
+        """Gets the log-in form and sets the cookie"""
+        # Send a GET request for login form
+        login_form = self.http_manager.request(GETRequest(HTTPAddress(LOGIN_FORM))).resolve()
+
+        # Exit if the GET request was unsuccessful
+        if login_form.code != 200:
+            print('Unable to get log-in form')
+            exit(1)
+        return login_form
+
+    def traverse_to(self, http_address):
+        """Traverses to the given http address"""
+        # Get and parse the page
+
+        page = self.http_manager.request(GETRequest(http_address)).resolve()
+
+        # Handle codes 403 (Forbidden) and 404 (Not Found)
+        if page.code in (403, 404):
+            return None
+
+        # Handle codes 301 (Moved Permanently), 302 (Found),
+        # and 500 (Internal Server Error)
+        new_http_address = http_address
+        while page.code in (301, 302, 500):
+            # Get the next page if applicable
+            if page.code in (301, 302):
+                new_http_address = HTTPAddress(page['Location'])
+            page = self.http_manager.request(GETRequest(new_http_address)).resolve()
+        return page
+
+    def login(self):
+        """Logs into Fakebook"""
+        # Get the log-in form
+        self.get_login_form()
+
+        # Log in using the given credentials
+
+        login_resp = self.http_manager.request(POSTRequest.from_form(HTTPAddress(LOGIN_FORM), {
+            'username': self.username,
+            'password': self.password,
+            'csrfmiddlewaretoken': self.http_manager.cookies['csrftoken'],
+            'next': r'%2Ffakebook%2F'
+        })).resolve()
+
+        # Return the next page after logging in
+        return self.traverse_to(HTTPAddress(login_resp.headers['Location']))
+
+    @staticmethod
+    def get_linkset(data):
+        """Returns the set of Fakebook links on the page"""
+        matches = re.findall('href="/fakebook/([/\w]+)', data)
+        return set(matches)
+
+    @staticmethod
+    def hunt_key(data):
+        """Searches the page for secret keys"""
+        flags = re.findall('<h2 class=\'secret_flag\'.+>FLAG: ([a-zA-Z0-9]{64})',
+            data)
+        return flags
 
     def crawl(self):
         """Runs the web crawler"""
@@ -326,7 +481,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Create a WebCrawler with the given username and password
-    crawler = WebCrawler(args.username, args.password)
+    crawler = HydraCrawler(args.username, args.password)
 
     logging.getLogger().setLevel(logging.INFO)
 

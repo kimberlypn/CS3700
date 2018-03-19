@@ -9,7 +9,6 @@ import time
 from urllib.parse import urlparse
 import weakref
 
-
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 
@@ -24,10 +23,6 @@ MAX_BYTES = 5000
 
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
-
-
-# -------------------------- HTTP UTILITY FUNCTIONS --------------------------
-
 
 class HTTPAddress:
     def __init__(self, url):
@@ -49,7 +44,7 @@ class HTTPRequest:
 
     @property
     def body(self):
-        # if tried to access before body is set, return a default string
+        # If tried to access before body is set, return a default string
         return getattr(self, '_body', '')
 
     @body.setter
@@ -62,7 +57,7 @@ class HTTPRequest:
         msg = '{0} {1} HTTP/1.0'.format(self.method, self.http_address.path) + CRLF
         msg += CRLF.join([': '.join((key, value))
                             for key, value in self.headers.items()])
-        msg += CRLF*2
+        msg += CRLF * 2
         if (self.body):
             msg += self.body + CRLF
         return msg
@@ -119,7 +114,7 @@ class HTTPResponse:
     def from_response(cls, data):
         my_response = cls()
 
-        #Header and body deliminated with CRLFCRLF, split on first n occurences
+        # Header and body deliminated with CRLFCRLF, split on first n occurences
         blocks = data.split(CRLF * 2, 1)
         raw_headers = blocks[0]
 
@@ -146,9 +141,6 @@ class HTTPResponse:
             logging.warning('Recieved {0} with no body'.format(my_response.code))
 
         return my_response
-
-
-# ----------------------- END OF HTTP UTILITY FUNCTIONS ----------------------
 
 
 class HTTPSession:
@@ -330,7 +322,6 @@ class CrawlMixin:
     def traverse_to(self, http_address):
         """Traverses to the given http address"""
         # Get and parse the page
-
         page = self.http_manager.request_sync(GETRequest(http_address))
 
         # Handle codes 403 (Forbidden) and 404 (Not Found)
@@ -446,6 +437,6 @@ if __name__ == '__main__':
     # Start crawling
     start_time = time.time()
     keys = crawler.crawl()
-    print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
+    # print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
     for key in keys:
         print(key)

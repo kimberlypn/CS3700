@@ -1,23 +1,26 @@
 Team: kpnguyen-sweeneyt
 
 ## High-level approach: 
-We created a WebCrawler class that gets instantiated in main with the username 
-and password entered by the user. We have a make_http() function that formats 
-an HTTP request. Our GET() and POST() functions use this to send the 
-request via a socket that is connected to the server on the HTTP port. The data 
-that is received from the socket gets parsed into a dictionary of the headers 
-and HTML.
+We took an OOD approach and created HTTP utility classes for getting the 
+url/host/path, formatting GET/POST requests, and parsing HTTP responses. We 
+also have an HTTPSession class that handles socket connections and 
+sending/receiving from the sockets, a CookieMixin class that generates cookies, 
+and a promise-based HTTPManager class that manages sending requests via the 
+sockets and updating the cookies. We implemented promises to leverage 
+asynchronization.
 
-The program starts when crawl() gets called. First, the WebCrawler logs into 
+The program starts when crawl() gets called. First, our web crawler logs into 
 Fakebook by sending a GET request for the log-in form. It extracts the CSRF 
 token and session ID from the response and generates the cookie string from 
-them; all three values are fields of the class. Next, the WebCrawler sends a 
-POST request to log in and extracts the new session ID. Upon successfully 
-logging in, the WebCrawler creates a set of unvisited URLs. While this set is 
-not empty and the five secret keys have not yet been found, the WebCrawler pops 
-a URL and adds it to a visited set to avoid loops, gets and parses the page, 
-and checks for any secret keys if the page is valid. When done, the secret keys 
-are printed.
+them. Next, the web crawler sends a POST request to log in and extracts the new 
+session ID. Upon successfully logging in, the web crawler creates a set of 
+unvisited URLs. The web crawler then loops until all of the secret flags have 
+been found, resolving promises that are ready to be fulfilled and making more 
+promises if the status code returned is 301, 302, or 500 or if there are no 
+ready promises (in which case, it pops an unvisited URL and adds it to the set 
+of visited URLs). If the status code is 403 or 404, the web crawler continues, 
+and if the status code is 200, it checks for any secret flags on the page. When 
+done, the secret flags are printed.
 
 ## Challenges: 
 One challenge that we ran into was with cookies. We were managing them 
@@ -25,6 +28,11 @@ incorrectly at first, which resulted in us getting sent back to the log-in page
 after logging in and following the 302 because the session was invalid. So, we 
 reworked our cookie logic, using print statements along the way to help debug, 
 and were eventually able to resolve the issue.
+
+Another challenge that we faced was efficiency. Our initial implementation 
+found all of the secret flags in about 15 minutes, but our goal had been 10 
+minutes or less. However, by revamping our code to leverage asynchronization, 
+we were able to reduce the time to less than 2 minutes.
 
 ## Testing: 
 We used print statements throughout to ensure that our requests were formatted 
@@ -34,8 +42,8 @@ properly and that we were getting the responses that we were expecting.
 Kimberly: implemented GET, response-parsing, sockets, cookies, and logic for 
 finding keys and wrote the README
 
-Tristan: implemented POST, log-in, formatting of HTTP requests, and 
-page traversal while handling loops
+Tristan: implemented POST, log-in, formatting of HTTP requests, and page 
+traversal and revamped the original implementation to use promises
 
 We also utilized PRs to review each other's work and build off of one another's 
 ideas.

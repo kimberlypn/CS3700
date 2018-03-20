@@ -321,7 +321,6 @@ class CrawlMixin:
         self.get_login_form()
 
         # Log in using the given credentials
-
         login_resp = self.http_manager.request_sync(
             POSTRequest.from_form(HTTPAddress(LOGIN_FORM), {
                 'username': self.username,

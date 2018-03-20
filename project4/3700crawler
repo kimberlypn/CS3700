@@ -372,7 +372,7 @@ class HydraCrawler(CrawlMixin):
         unvisited = self.get_linkset(login_page.body)
 
         # Loop until all of the secret flags have been found
-        while (unvisited or promises) and len(secret_keys) != 5:
+        while (unvisited or promises) and len(secret_flags) != 5:
             ready = set(filter(lambda p: p.is_ready(), promises))
             promises -= ready
             if not ready and unvisited:

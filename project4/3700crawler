@@ -104,7 +104,7 @@ class HTTPResponse:
                 continue
             name, value = parts
 
-            if  re.search('[Ss]et-[Cc]ookie', name):
+            if re.search('[Ss]et-[Cc]ookie', name):
                 match = re.search("(\w+)=(\w+)", value)
                 self.cookies[match.group(1)] = match.group(2)
             else:
@@ -150,12 +150,12 @@ class HTTPSession:
 
     def connect(self, host):
         """Creates and connects a socket"""
-        # Set up the socket
         logging.info('Opening HTTP socket to host ' + host)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((host, 80))
 
     def send(self, http_request):
+        """Sends an HTTP request via a socket"""
         if self.sock is None:
             self.connect(http_request.http_address.host)
         else:
@@ -163,6 +163,7 @@ class HTTPSession:
         self.sock.send(http_request.dumps().encode())
 
     def has_response(self):
+        """Returns true if there is data to be read"""
         if self.sock is None:
             return False
         poll = select.poll()
@@ -183,15 +184,18 @@ class HTTPSession:
                 if new_data == ('0' + CRLF * 2):
                     break
                 data += new_data
+                # Set the chunked flag to false if the response has not been chunked
                 if not (data and re.search('Transfer-Encoding: chunked', data)):
                     chunked = False
-                if not (self.has_response() and new_data): # new data '' when EOF
+                # Break if there is no data left to read
+                if not (self.has_response() and new_data):
                     break
         except socket.timeout:
             logging.warning('Socket timed out')
             pass
 
         resp = HTTPResponse.from_response(data)
+
         if not re.search('[Kk]eep[-_\ ][Aa]live', resp.headers.get('Connection', '')):
             logging.info('Tearing down connection after {0} sent packets on a {1}'.format(self.count, resp.code))
             self.sock.close()
@@ -204,11 +208,12 @@ class HTTPSession:
 class CookieMixin:
     @property
     def cookie(self):
-        """Stringify the cookie dictionary"""
+        """Stringifies the cookie dictionary"""
         if not hasattr(self, 'cookies'):
             setattr(self, 'cookies', {})
         return '; '.join(['='.join((key, value))
                                 for key, value in self.cookies.items()])
+
 
 class HTTPManager(CookieMixin):
     def __init__(self):
@@ -216,7 +221,7 @@ class HTTPManager(CookieMixin):
         self.cookies = {}
 
     def request(self, http_request):
-        """Makes a HTTP request"""
+        """Makes an HTTP request"""
         http_request.headers['Connection'] = 'keep-alive'
         if self.cookie:
             http_request.headers['Cookie'] = self.cookie
@@ -228,6 +233,7 @@ class HTTPManager(CookieMixin):
         return http_response
 
     def request_sync(self, http_request):
+        """Makes an HTTP request"""
         return self.request(http_request)
 
 
@@ -238,9 +244,11 @@ class HydraPromise:
         self.manager = weakref.ref(hydra_manager)
 
     def is_ready(self):
+        """Determines if the promise is ready to be resolved"""
         return self.session and self.session.has_response()
 
     def resolve(self):
+        """Resolves a promise, returning the response"""
         if self.session is None:
             return None
         logging.debug('Resolving Promise({0})'.format(self.http_request))
@@ -277,6 +285,7 @@ class HydraManager(CookieMixin):
         return HydraPromise(http_request, http_session, self)
 
     def request_sync(self, http_request):
+        """Resolves an HTTP request"""
         return self.request(http_request).resolve()
 
 
@@ -288,14 +297,14 @@ class CrawlMixin:
         return set(matches)
 
     @staticmethod
-    def hunt_keys(data):
-        """Searches the page for secret keys"""
+    def hunt_flags(data):
+        """Searches the page for secret flags"""
         flags = re.findall('<h2 class=\'secret_flag\'.+>FLAG: ([a-zA-Z0-9]{64})',
             data)
         return flags
 
     def get_login_form(self):
-        """Gets the log-in form and sets the cookie"""
+        """Gets the log-in form"""
         # Send a GET request for login form
         login_form = self.http_manager.request_sync(
                             GETRequest(HTTPAddress(LOGIN_FORM)))
@@ -305,7 +314,6 @@ class CrawlMixin:
             print('Unable to get log-in form')
             exit(1)
         return login_form
-
 
     def login(self):
         """Logs into Fakebook"""
@@ -326,7 +334,7 @@ class CrawlMixin:
         return self.traverse_to(HTTPAddress(login_resp.headers['Location']))
 
     def traverse_to(self, http_address):
-        """Traverses to the given http address"""
+        """Traverses to the given HTTP address"""
         # Get and parse the page
         page = self.http_manager.request_sync(GETRequest(http_address))
 
@@ -355,8 +363,8 @@ class HydraCrawler(CrawlMixin):
         """Runs the web crawler"""
         visited = set() # Set of visited pages
         unvisited = set() # Set of univisited pages
-        secret_keys = [] # List of secret keys
-        promises = set()
+        secret_flags = [] # List of secret flags
+        promises = set() # Set of promises to be resolved
 
         # Get the home page after logging in
         login_page = self.login()
@@ -364,7 +372,7 @@ class HydraCrawler(CrawlMixin):
         # Get the set of unvisited links on the home page
         unvisited = self.get_linkset(login_page.body)
 
-        # Loop until all of the secret keys have been found
+        # Loop until all of the secret flags have been found
         while (unvisited or promises) and len(secret_keys) != 5:
             ready = set(filter(lambda p: p.is_ready(), promises))
             promises -= ready
@@ -383,11 +391,12 @@ class HydraCrawler(CrawlMixin):
                 elif http_response.code in (500,):
                     promises.add(self.http_manager.request(GETRequest(promise.http_request.http_address)))
                 elif http_response.code in (200,):
-                    # Add any secret keys if found
-                    secret_keys += self.hunt_keys(http_response.body)
+                    # Add any secret flags if found
+                    secret_flags += self.hunt_flags(http_response.body)
                     # Update unvisited
                     unvisited |= (self.get_linkset(http_response.body) - visited)
-        return secret_keys
+
+        return secret_flags
 
 
 if __name__ == '__main__':
@@ -403,8 +412,9 @@ if __name__ == '__main__':
     logging.getLogger().setLevel(logging.ERROR)
 
     # Start crawling
-    start_time = time.time()
-    keys = crawler.crawl()
-    print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
-    for key in keys:
-        print(key)
+    # start_time = time.time()
+    flags = crawler.crawl()
+    # Prints the runtime; used for testing purposes. Uncomment lines 406 and 409
+    # print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
+    for flag in flags:
+        print(flag)

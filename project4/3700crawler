@@ -54,7 +54,7 @@ class HTTPRequest:
 
     def dumps(self):
         """Formats an HTTP request"""
-        msg = '{0} {1} HTTP/1.0'.format(self.method, self.http_address.path) + CRLF
+        msg = '{0} {1} HTTP/1.1'.format(self.method, self.http_address.path) + CRLF
         msg += CRLF.join([': '.join((key, value))
                             for key, value in self.headers.items()])
         msg += CRLF * 2
@@ -174,12 +174,18 @@ class HTTPSession:
     def get_response(self):
         """Returns the data retrieved from the socket"""
         data = ''
+        chunked = True
         try:
-            # While we can read data, append it to the data string
-            while True:
+            # Loop until all of the data has been read
+            while (chunked and not data[-5:] == ('0' + CRLF * 2)) or not data:
                 new_data = self.sock.recv(MAX_BYTES).decode()
+                # If the data is just a chunk terminator, break out of the loop
+                if new_data == ('0' + CRLF * 2):
+                    break
                 data += new_data
-                if not (self.has_response() and new_data): #new data '' when EOF
+                if not (data and re.search('Transfer-Encoding: chunked', data)):
+                    chunked = False
+                if not (self.has_response() and new_data): # new data '' when EOF
                     break
         except socket.timeout:
             logging.warning('Socket timed out')
@@ -339,44 +345,6 @@ class CrawlMixin:
         return page
 
 
-class WebCrawler(CrawlMixin):
-    def __init__(self, username, password):
-        self.username = username
-        self.password = password
-        self.http_manager = HTTPManager()
-
-    def crawl(self):
-        """Runs the web crawler"""
-        visited = set() # Set of visited pages
-        unvisited = set() # Set of univisited pages
-        secret_keys = [] # List of secret keys
-
-        # Get the home page after logging in
-        login_page = self.login()
-
-        # Get the set of unvisited links on the home page
-        unvisited = self.get_linkset(login_page.body)
-
-        # Loop until all of the secret keys have been found
-        while len(unvisited) > 0 and len(secret_keys) != 5:
-            url = unvisited.pop()
-            visited.add(url)
-
-            # Go to the next unvisited page
-            page = crawler.traverse_to(HTTPAddress(ROOT + url))
-
-            # Skip if the page does not exist
-            if page is None:
-                continue
-
-            # Add any secret keys if found
-            secret_keys += self.hunt_keys(page.body)
-
-            # Update unvisited
-            unvisited |= (self.get_linkset(page.body) - visited)
-        return secret_keys
-
-
 class HydraCrawler(CrawlMixin):
     def __init__(self, username, password):
         self.username = username
@@ -437,6 +405,6 @@ if __name__ == '__main__':
     # Start crawling
     start_time = time.time()
     keys = crawler.crawl()
-    # print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
+    print('Runtime {0:.2f} minutes'.format((time.time() - start_time)/60.0))
     for key in keys:
         print(key)

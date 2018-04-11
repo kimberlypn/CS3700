@@ -74,35 +74,35 @@ def run_test(filename, description, requests, replicas, mayfail, tolerance, late
 trials = []
 
 print 'Basic tests (5 replicas, 30 seconds, 500 requests):'
-trials.append(run_test('simple-1.json', 'No drops, no failures, 80% read',
+trials.append(run_test('test_config/simple-1.json', 'No drops, no failures, 80% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.2, LATENCY_LOW))
-trials.append(run_test('simple-2.json', 'No drops, no failures, 20% read',
+trials.append(run_test('test_config/simple-2.json', 'No drops, no failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.2, LATENCY_LOW))
 
 print 'Unreliable network tests (5 replicas, 30 seconds, 500 requests):'
-trials.append(run_test('unreliable-1.json', '5% drops, no failures, 20% read',
+trials.append(run_test('test_config/unreliable-1.json', '5% drops, no failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.25, LATENCY_LOW))
-trials.append(run_test('unreliable-2.json', '10% drops, no failures, 20% read',
+trials.append(run_test('test_config/unreliable-2.json', '10% drops, no failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.3, LATENCY_MID))
-trials.append(run_test('unreliable-3.json', '15% drops, no failures, 20% read',
+trials.append(run_test('test_config/unreliable-3.json', '15% drops, no failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.35, LATENCY_MID))
 
 print 'Crash failure tests (5 replicas, 30 seconds, 500 requests):'
-trials.append(run_test('crash-1.json', 'No drops, 1 replica failure, 20% read',
+trials.append(run_test('test_config/crash-1.json', 'No drops, 1 replica failure, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.2, LATENCY_LOW))
-trials.append(run_test('crash-2.json', 'No drops, 2 replica failures, 20% read',
+trials.append(run_test('test_config/crash-2.json', 'No drops, 2 replica failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.2, LATENCY_LOW))
-trials.append(run_test('crash-3.json', 'No drops, 1 leader failure, 20% read',
+trials.append(run_test('test_config/crash-3.json', 'No drops, 1 leader failure, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.3, LATENCY_LOW))
-trials.append(run_test('crash-4.json', 'No drops, 2 leader failures, 20% read',
+trials.append(run_test('test_config/crash-4.json', 'No drops, 2 leader failures, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.4, LATENCY_LOW))
 
 print 'Partition tests (5 replicas, 30 seconds, 500 requests):'
-trials.append(run_test('partition-1.json', 'No drops, 1 easy partition, 20% read',
+trials.append(run_test('test_config/partition-1.json', 'No drops, 1 easy partition, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.3, LATENCY_LOW))
-trials.append(run_test('partition-2.json', 'No drops, 2 easy partitions, 20% read',
+trials.append(run_test('test_config/partition-2.json', 'No drops, 2 easy partitions, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.4, LATENCY_LOW))
-trials.append(run_test('partition-3.json', 'No drops, 1 hard partition, 20% read',
+trials.append(run_test('test_config/partition-3.json', 'No drops, 1 hard partition, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_HIGH))
 trials.append(run_test('partition-4.json', 'No drops, 2 hard partitions, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_HIGH))
@@ -110,15 +110,15 @@ trials.append(run_test('partition-4.json', 'No drops, 2 hard partitions, 20% rea
 ldr = open(LEADERBOARD_OUTPUT + getpass.getuser(), 'w')
 
 print 'Bring the pain (5 replicas, 30 seconds):'
-trials.append(run_test('advanced-1.json', '1000 requests, 10% drops, 2 hard partitions and 1 leader failures, 20% read',
+trials.append(run_test('test_config/advanced-1.json', '1000 requests, 10% drops, 2 hard partitions and 1 leader failures, 20% read',
                        PACKETS_HIGH, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_HIGH, ldr))
-trials.append(run_test('advanced-2.json', '800 requests, 15% drops, 2 leader failures, 20% read',
+trials.append(run_test('test_config/advanced-2.json', '800 requests, 15% drops, 2 leader failures, 20% read',
                        PACKETS_MID, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_MID, ldr))
-trials.append(run_test('advanced-3.json', '500 requests, 50% drops, 1 leader failure, 20% read',
+trials.append(run_test('test_config/advanced-3.json', '500 requests, 50% drops, 1 leader failure, 20% read',
                        PACKETS_LOW, REPLICAS, 0.3, 2, LATENCY_HIGH, ldr))
 
 print 'Bonus Mode Extra Credit! (5 replicas, 30 seconds, 1000 requests):'
-trials.append(run_test('advanced-4.json', '10% drops, 3 hard partions and 1 leader kill, 20% read',
+trials.append(run_test('test_config/advanced-4.json', '10% drops, 3 hard partions and 1 leader kill, 20% read',
                        PACKETS_HIGH, REPLICAS, MAYFAIL_HIGH, 2, LATENCY_HIGH, ldr))
 
 print 'Passed', sum([1 for x in trials if x]), 'out of', len(trials), 'tests'

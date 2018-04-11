@@ -60,7 +60,7 @@ class Server:
 
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
         self.current_term = 0 # latest term server has seen
-        self.voted_for = None # candidateId that received vote in current term
+        self.voted_for = None # ID of candidate that received vote in current term
         self.log = [] # log entries
 
         # ----------------------- VOLATILE STATE (ALL) ------------------------
@@ -71,7 +71,7 @@ class Server:
         self.next_idx = {} # index of next log entry to send to each server
         self.match_idx = {} # index of highest log entry known on each server
 
-        # Run thread for managing heartbeats if this is the leader
+        # Start heartbeat thread
         threading.Thread(target=self.send_heartbeat).start()
 
     def send_heartbeat(self):

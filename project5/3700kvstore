@@ -122,7 +122,7 @@ class Server:
  
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Key-Value Store.', 
+    parser = argparse.ArgumentParser(description='Distributed Key-Value Store.',
                                      add_help=False)
     parser.add_argument('id',
                         help='ID of your replica (four-digit hex)')

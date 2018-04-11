@@ -45,7 +45,7 @@ class Sock:
 
     def send(self, msg):
         """Sends a JSON object through the socket"""
-       print('{src} sending a NOOP to {dst}'.format(src=msg['src'], dst=msg['dst']))
+        print('{src} sending a NOOP to {dst}'.format(src=msg['src'], dst=msg['dst']))
         msg = str.encode(json.dumps(msg))
         self.sock.send(msg)
 
@@ -74,7 +74,7 @@ class Server:
         # Run thread for managing heartbeats if this is the leader
         threading.Thread(target=self.send_heartbeat).start()
 
-    def send_heartbeat():
+    def send_heartbeat(self):
         """Sends periodic heartbeats as the leader"""
         while True:
             if self.state == State.LEADER:

@@ -5,11 +5,13 @@ import select
 import time
 import json
 import random
+import threading
 from enum import Enum
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768
+HEARTBEAT_FREQ = 0.5 # seconds, or 500 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
@@ -43,21 +45,47 @@ class Sock:
 
     def send(self, msg):
         """Sends a JSON object through the socket"""
-        print('{src} sending a NOOP to {dst}'.format(src=msg['src'], dst=msg['dst']))
+       print('{src} sending a NOOP to {dst}'.format(src=msg['src'], dst=msg['dst']))
         msg = str.encode(json.dumps(msg))
         self.sock.send(msg)
 
 
-class Datastore:
+class Server:
     def __init__(self, id, replicas):
         self.id = id # own ID
         self.replicas = replicas # IDs of all other replicas
         self.sock = Sock(id) # Sock object for sending/receiving messsages
-        self.currentTerm = 0 # latest term server has seen
-        self.votedFor = None # candidateId that received vote in current term
+        self.state = State.FOLLOWER # current state; initialized to follower
+        self.leader = None
+
+        # ---------------------- PERSISTENT STATE (ALL) -----------------------
+        self.current_term = 0 # latest term server has seen
+        self.voted_for = None # candidateId that received vote in current term
         self.log = [] # log entries
-        self.commitIdx = 0 # index of highest log entry known to be committed
-        self.lastApplied = 0 # index of highest log entry applied to state machine
+
+        # ----------------------- VOLATILE STATE (ALL) ------------------------
+        self.commit_idx = 0 # index of highest log entry known to be committed
+        self.last_applied = 0 # index of highest log entry applied to state machine
+
+        # --------------------- VOLATILE STATE (LEADER) -----------------------
+        self.next_idx = {} # index of next log entry to send to each server
+        self.match_idx = {} # index of highest log entry known on each server
+
+        # Run thread for managing heartbeats if this is the leader
+        threading.Thread(target=self.send_heartbeat).start()
+
+    def send_heartbeat():
+        """Sends periodic heartbeats as the leader"""
+        while True:
+            if self.state == State.LEADER:
+                for replica in self.replicas:
+                    msg = {
+                        'src': self.id, 
+                        'dst': replica,
+                        'leader': self.leader, 
+                        'type': 'heartbeat'
+                    }
+            time.sleep(HEARTBEAT_FREQ) 
 
     def run(self):
         """Runs the main loop"""
@@ -104,7 +132,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Initialize the datastore with the arguments passed
-    datastore = Datastore(args.id, args.replicas)
+    server = Server(args.id, args.replicas)
 
     # Start the program
-    datastore.run()
+    server.run()

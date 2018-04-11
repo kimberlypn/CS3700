@@ -56,7 +56,9 @@ class Server:
         self.replicas = replicas # IDs of all other replicas
         self.sock = Sock(id) # Sock object for sending/receiving messsages
         self.state = State.FOLLOWER # current state; initialized to follower
-        self.leader = None
+        self.leader = None # ID of the assumed leader
+        # election timeout chosen randomly from fixed interval of 0.15-0.3 s
+        self.election_timeout = random.randint(0.15, 0.3)
 
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
         self.current_term = 0 # latest term server has seen

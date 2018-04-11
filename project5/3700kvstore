@@ -8,29 +8,70 @@ import random
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
-SELF_ID = None # own ID
-REPLICA_IDS = None # IDs of all other replicas
+MAX_BYTES = 32768
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
-def connect():
-    """Creates and connects a socket"""
-    
+class Sock:
+    def __init__(self, lan):
+        self.sock = self.__connect() # socket over which all messages will occur
+        self.lan = lan # domain socket to which to connect
 
-def run():
-    
+    def __connect(self):
+        """Creates and connects a socket"""
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        self.sock.connect(self.lan)
+
+    def recv_msg(self):
+        """Returns the data from the socket as a deserialized JSON object"""
+        msg_raw = self.sock.recv(MAX_BYTES)
+        msg = json.loads(msg_raw) if len(msg_raw) != 0 else {}
+        return msg
+
+    def send_msg(self, msg):
+        """Sends a JSON object through the socket"""
+        print '%s sending a NOOP to %s' % (msg['src'], msg['dst'])
+        msg = json.dumps(msg)
+        self.sock.send(msg)
+
+class Datastore:
+    def __init__(self, id, replicas):
+        self.id = id # own ID
+        self.replicas = replicas # IDs of all other replicas
+        self.sock = Sock(id) #  over which all messages will occur
+
+    def run(self):
+        """Runs the main loop"""
+        while True:
+            ready = select.select([self.sock.sock], [], [], 0.1)[0]
+        
+            if self.sock.sock in ready:
+                msg = self.sock.recv_msg()
+                
+                if not msg:
+                    continue
+                
+                # For now, ignore get() and put() from clients
+		if msg['type'] in ['get', 'put']:
+                    pass
+		
+		# Handle noop messages. This may be removed from your final implementation
+		elif msg['type'] == 'noop':
+                    print '%s received a NOOP from %s' % (msg['dst'], msg['src'])
+                
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Key-Value Store.', 
                                      add_help=False)
     parser.add_argument('id',
                         help='ID of your replica (four-digit hex)')
-    parser.add_argument('other_ids',
+    parser.add_argument('replicas',
                         nargs='+',
                         help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
-    SELF_ID = args.id
-    REPLICA_IDS = args.other_ids
+    # Initialize the datastore with the arguments passed
+    datastore = Datastore(args.id, args.replicas)
 
-    run()
+    # Start the program
+    datastore.run()

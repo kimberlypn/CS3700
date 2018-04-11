@@ -65,11 +65,6 @@ def run(datastore):
             datastore.send_msg(msg)
             last = clock
  
-class Sock:
-    def __init__(self, id):
-        self.sock = self.__connect(id) # socket over which all messages will occur
-
-        
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Key-Value Store.', 

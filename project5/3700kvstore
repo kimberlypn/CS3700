@@ -12,39 +12,44 @@ MAX_BYTES = 32768
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
-class Datastore:
-    def __init__(self, id, replicas):
-        self.id = id # own ID
-        self.replicas = replicas # IDs of all other replicas
-        self.sock = self.__create_socket() # socket over which all messages will occur
+class Sock:
+    def __init__(self, lan):
+        self.sock = self.__create_socket(lan) # socket over which all messages will occur
 
-    def __create_socket(self):
+    def __create_socket(self, lan):
         """Creates and returns a connected socket"""
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        sock.connect(self.id)
+        sock.connect(lan)
         return sock
 
-    def recv_msg(self):
+    def recv(self):
         """Returns the data from the socket as a deserialized JSON object"""
         msg_raw = self.sock.recv(MAX_BYTES)
         msg = json.loads(msg_raw) if len(msg_raw) != 0 else {}
         return msg
 
-    def send_msg(self, msg):
+    def send(self, msg):
         """Sends a JSON object through the socket"""
         print '%s sending a NOOP to %s' % (msg['src'], msg['dst'])
         msg = json.dumps(msg)
         self.sock.send(msg)
+
+ 
+class Datastore:
+    def __init__(self, id, replicas):
+        self.id = id # own ID
+        self.replicas = replicas # IDs of all other replicas
+        self.sock = Sock(id) # Sock object for sending/receiving messsages
 
 
 def run(datastore):
     last = 0
     """Runs the main loop"""
     while True:
-        ready = select.select([datastore.sock], [], [], 0.1)[0]
+        ready = select.select([datastore.sock.sock], [], [], 0.1)[0]
         
-        if datastore.sock in ready:
-            msg = datastore.recv_msg()
+        if datastore.sock.sock in ready:
+            msg = datastore.sock.recv()
                 
             if not msg:
                 continue
@@ -62,7 +67,7 @@ def run(datastore):
             # Send a no-op message to a random peer every two seconds, just for fun
             # You definitely want to remove this from your implementation
             msg = {'src': datastore.id, 'dst': random.choice(datastore.replicas), 'leader': 'FFFF', 'type': 'noop'}
-            datastore.send_msg(msg)
+            datastore.sock.send(msg)
             last = clock
  
 

@@ -46,7 +46,6 @@ class Sock:
 
     def send(self, msg):
         """Sends a JSON object through the socket"""
-        print('{src} sending to {dst}'.format(src=msg['src'], dst=msg['dst']))
         msg = str.encode(json.dumps(msg))
         self.sock.send(msg)
 
@@ -66,7 +65,8 @@ class Server:
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
         self.current_term = 0 # latest term server has seen
         self.voted_for = None # ID of candidate that received vote in current term
-        self.log = [] # log entries
+        # log entries; each entry contains command and term (first index is 1)
+        self.log = [{'command': None, 'term': None}]
 
         # ----------------------- VOLATILE STATE (ALL) ------------------------
         self.commit_idx = 0 # index of highest log entry known to be committed
@@ -78,7 +78,7 @@ class Server:
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         # Start heartbeat thread
-        #threading.Thread(target=self.send_heartbeat).start()
+        threading.Thread(target=self.send_heartbeat).start()
 
     def send_heartbeat(self):
         """Sends periodic heartbeats as the leader"""
@@ -123,32 +123,6 @@ class Server:
         # Reset election timer
         self.election_timeout = random.uniform(0.15, 0.3)
 
-    def check_timeout(self):
-        """Determines if an election needs to take place"""
-        time = current_time()
-
-        if self.state != State.LEADER:
-            if (time - self.prev_timeout) >= self.election_timeout:
-                # Election timeout met, so start election
-                start_election()
-                # Send RequestVote RPCs to all other servers
-                last_log_idx = len(self.log) - 1
-                for replica in self.replicas:
-                    msg = {
-                        'src': self.id,
-                        'dst': replica,
-                        'type': 'request_vote',
-                        # Candidate's term
-                        'term': self.current_term,
-                        # Index of candidate's last log entry
-                        'last_log_idx': last_log_idx,
-                        # Term of candidate's last log entry
-                        'last_log_term': self.log[last_log_idx]['term']
-                    }
-                    self.sock.send(msg)
-                # Reset the previous timeout
-                self.prev_timeout = time
-
     def handle_heartbeat(self, msg):
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
@@ -179,21 +153,23 @@ class Server:
             resp = {
                 'src': self.id,
                 'dst': msg['src'],
+                'leader': self.leader,
                 'type': 'vote_granted'
             }
             self.sock.send(resp)
         else:
             return False
 
-    def handle_received_vote(msg):
+    def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
         # Add the vote
         self.votes.add(msg['src'])
         # Check if the election was won
-        quorum = math.floor(len(replicas)) + 1
+        quorum = math.floor(len(self.replicas)) + 1
         if len(self.votes) >= quorum:
             # Become the new leader
             self.state = State.LEADER
+            self.leader = self.id
 
     def handle_get(self):
         """Handles a get request from the client"""
@@ -210,28 +186,55 @@ class Server:
         if msg['type'] == 'append_entries':
             # Heartbeat
             if not msg['entries']:
-                handle_heartbeat(msg)
+                self.handle_heartbeat(msg)
             # RPC from leader to replicate log entries
             else:
-                handle_append(msg)
+                self.handle_append(msg)
         # RPC to vote in an election
         elif msg['type'] == 'request_vote':
-            handle_request_vote(msg)
+            self.handle_request_vote(msg)
         # Vote received
         elif msg['type'] == 'vote_granted' and self.state == State.CANDIDATE:
-            handle_received_vote(msg)
+            self.handle_received_vote(msg)
         # Get request from client
         elif msg['type'] == 'get' and self.state == State.LEADER:
-            handle_get(msg)
+            self.handle_get(msg)
         # Put request from client
         elif msg['type'] == 'put' and self.state == State.LEADER:
-            handle_put(msg)
+            self.handle_put(msg)
+
+    def check_timeout(self):
+        """Determines if an election needs to take place"""
+        time = current_time()
+
+        if self.state != State.LEADER:
+            if (time - self.prev_timeout) >= self.election_timeout:
+                # Election timeout met, so start election
+                self.start_election()
+                # Send RequestVote RPCs to all other servers
+                last_log_idx = len(self.log) - 1
+                for replica in self.replicas:
+                    msg = {
+                        'src': self.id,
+                        'dst': replica,
+                        'leader': self.leader,
+                        'type': 'request_vote',
+                        # Candidate's term
+                        'term': self.current_term,
+                        # Index of candidate's last log entry
+                        'last_log_idx': last_log_idx,
+                        # Term of candidate's last log entry
+                        'last_log_term': self.log[last_log_idx]['term']
+                    }
+                    self.sock.send(msg)
+                # Reset the previous timeout
+                self.prev_timeout = time
 
     def run(self):
         """Runs the main loop"""
         while True:
             # Check for an election timeout
-            check_timeout()
+            self.check_timeout()
 
             ready = select.select([self.sock.sock], [], [], 0.1)[0]
         
@@ -241,20 +244,9 @@ class Server:
                 # Skip if there is no data
                 if not msg:
                     continue
-
-                # Reply with a fail message if the leader if unknown
-                if self.leader == "FFFF":
-                    resp = {
-                        'src': self.id,
-                        'dst': msg['src'],
-                        'leader': self.leader,
-                        'type': 'fail',
-                        'MID': msg['MID']
-                    }
-                    self.sock.send(resp)
                 # Else, handle the message
                 else:
-                    handle_data(msg)
+                    self.handle_data(msg)
               
 
 if __name__ == '__main__':

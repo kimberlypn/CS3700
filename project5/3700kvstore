@@ -6,11 +6,12 @@ import time
 import json
 import random
 import threading
+import math
 from enum import Enum
 
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
-MAX_BYTES = 32768
+MAX_BYTES = 32768 # maximum bytes to read in from the socket
 HEARTBEAT_FREQ = 0.5 # seconds, or 500 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
@@ -60,6 +61,7 @@ class Server:
         # election timeout chosen randomly from fixed interval of 0.15-0.3 s
         self.election_timeout = random.uniform(0.15, 0.3)
         self.prev_timeout = current_time() # timestamp of previous timeout
+        self.votes = set() # votes received during the election process
 
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
         self.current_term = 0 # latest term server has seen
@@ -73,24 +75,39 @@ class Server:
         # --------------------- VOLATILE STATE (LEADER) -----------------------
         self.next_idx = {} # index of next log entry to send to each server
         self.match_idx = {} # index of highest log entry known on each server
+        self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         # Start heartbeat thread
-        threading.Thread(target=self.send_heartbeat).start()
-        # Start timeout thread
-        threading.Thread(target=self.check_timeout).start()
+        #threading.Thread(target=self.send_heartbeat).start()
 
     def send_heartbeat(self):
         """Sends periodic heartbeats as the leader"""
+        time = current_time()
         while True:
             if self.state == State.LEADER:
-                for replica in self.replicas:
-                    msg = {
-                        'src': self.id, 
-                        'dst': replica,
-                        'leader': self.leader, 
-                        'type': 'heartbeat'
-                    }
-            time.sleep(HEARTBEAT_FREQ) 
+                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                    prev_log_idx = len(self.log) - 1
+                    for replica in self.replicas:
+                        msg = {
+                            'src': self.id, 
+                            'dst': replica,
+                            # Used for followers to redirect clients
+                            'leader': self.leader,
+                            'type': 'append_entries',
+                            # Leader's term
+                            'term': self.current_term,
+                            # Index of log entry immediately preceding new ones
+                            'prev_log_idx': prev_log_idx,
+                            # Term of prev_log_idx entry
+                            'prev_log_term': self.log[prev_log_idx]['term'],
+                            # Log entries to store (empty for heartbeat)
+                            'entries': [],
+                            # Leader's commit_idx
+                            'leader_commit': self.commit_idx
+                        }
+                        self.sock.send(msg)
+                    # Reset the heartbeat timer
+                    self.prev_heartbeat = time
 
     def start_election(self):
         """Handles what happens when a node becomes a candidate"""
@@ -98,14 +115,17 @@ class Server:
         self.state = State.CANDIDATE
         # Increment the current term
         self.current_term += 1
+        # Reset any votes from a previous election
+        self.votes = set()
         # Vote for self
         self.voted_for = self.id
+        self.votes.add(self.id)
         # Reset election timer
         self.election_timeout = random.uniform(0.15, 0.3)
 
     def check_timeout(self):
         """Determines if an election needs to take place"""
-        time = curren_time()
+        time = current_time()
 
         if self.state != State.LEADER:
             if (time - self.prev_timeout) >= self.election_timeout:
@@ -129,6 +149,52 @@ class Server:
                 # Reset the previous timeout
                 self.prev_timeout = time
 
+    def handle_heartbeat(self, msg):
+        """Handles an AppendEntries RPC from a leader"""
+        prev_log_idx = msg['prev_log_idx']
+        prev_log_term = msg['prev_log_term']
+
+        # Invalid if leader's term < receiver's term
+        if msg['term'] < self.current_term:
+            return False
+        # Log doesn't contain entry at prev_log_idx whose term 
+        # matches prev_log_term
+        elif ((prev_log_idx > len(self.log) - 1) or 
+            (self.log[prev_log_idx]['term'] != prev_log_term)):
+            return False
+        else:
+            # If existing entry conflicts with new one (same idx but different 
+            # terms), delete existing entry and all that follow it
+            return True
+
+    def handle_request_vote(self, msg):
+        """Handles a RequestVote RPC from a candidate"""
+        # Invalid if candidate's term < receiver's term
+        if msg['term'] < self.current_term:
+            return False
+        # Grant vote if voted_for is null or equal to candidate's ID and
+        # candidate's log is at least as up-to-date as receiver's log
+        elif ((not self.voted_for or self.voted_for == msg['src']) and 
+            msg['last_log_idx'] >= len(self.log) - 1):
+            resp = {
+                'src': self.id,
+                'dst': msg['src'],
+                'type': 'vote_granted'
+            }
+            self.sock.send(resp)
+        else:
+            return False
+
+    def handle_received_vote(msg):
+        """Handles a received vote during an election"""
+        # Add the vote
+        self.votes.add(msg['src'])
+        # Check if the election was won
+        quorum = math.floor(len(replicas)) + 1
+        if len(self.votes) >= quorum:
+            # Become the new leader
+            self.state = State.LEADER
+
     def handle_get(self):
         """Handles a get request from the client"""
 
@@ -136,9 +202,30 @@ class Server:
     def handle_put(self):
         """Handles a put request from the client"""
 
-    def handle_data(self):
+
+    def handle_data(self, msg):
         """Handles the data received from the socket accordingly"""
-        
+        time = current_time()
+
+        if msg['type'] == 'append_entries':
+            # Heartbeat
+            if not msg['entries']:
+                handle_heartbeat(msg)
+            # RPC from leader to replicate log entries
+            else:
+                handle_append(msg)
+        # RPC to vote in an election
+        elif msg['type'] == 'request_vote':
+            handle_request_vote(msg)
+        # Vote received
+        elif msg['type'] == 'vote_granted' and self.state == State.CANDIDATE:
+            handle_received_vote(msg)
+        # Get request from client
+        elif msg['type'] == 'get' and self.state == State.LEADER:
+            handle_get(msg)
+        # Put request from client
+        elif msg['type'] == 'put' and self.state == State.LEADER:
+            handle_put(msg)
 
     def run(self):
         """Runs the main loop"""
@@ -167,7 +254,7 @@ class Server:
                     self.sock.send(resp)
                 # Else, handle the message
                 else:
-                    handle_data()
+                    handle_data(msg)
               
 
 if __name__ == '__main__':

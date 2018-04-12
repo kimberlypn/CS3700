@@ -73,8 +73,8 @@ class Server:
         self.last_applied = 0 # index of highest log entry applied to state machine
 
         # --------------------- VOLATILE STATE (LEADER) -----------------------
-        self.next_idx = {} # index of next log entry to send to each server
-        self.match_idx = {} # index of highest log entry known on each server
+        self.next_idx = 1 # index of next log entry to send to each server
+        self.match_idx = 0 # index of highest log entry known on each server
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         # Start heartbeat thread
@@ -170,6 +170,9 @@ class Server:
             # Become the new leader
             self.state = State.LEADER
             self.leader = self.id
+            # Re-initialize volatile state
+            self.next_idx = len(self.log)
+            self.match_idx = 0
 
     def handle_get(self):
         """Handles a get request from the client"""

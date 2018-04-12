@@ -1,42 +1,396 @@
-#!/usr/bin/env python
+#!/usr/bin/python3 -u
+import argparse
+import socket
+import select
+import time
+import json
+import random
+import threading
+import math
+from enum import Enum
 
-import sys, socket, select, time, json, random
+# ----------------------------- GLOBAL VARIABLES -----------------------------
 
-# Your ID number
-my_id = sys.argv[1]
+MAX_BYTES = 32768 # maximum bytes to read in from the socket
+HEARTBEAT_FREQ = 0.5 # seconds, or 500 milliseconds
 
-# The ID numbers of all the other replicas
-replica_ids = sys.argv[2:]
+# ------------------------- END OF GLOBALS VARIABLES -------------------------
 
-# Connect to the network. All messages to/from other replicas and clients will
-# occur over this socket
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-sock.connect(my_id)
+def current_time():
+    """Returns the current time in seconds"""
+    return time.time()
 
-last = 0
 
-while True:
-	ready = select.select([sock], [], [], 0.1)[0]
-	
-	if sock in ready:
-		msg_raw = sock.recv(32768)
-		
-		if len(msg_raw) == 0: continue
-		msg = json.loads(msg_raw)
-		
-		# For now, ignore get() and put() from clients
-		if msg['type'] in ['get', 'put']:
-                        pass
-		
-		# Handle noop messages. This may be removed from your final implementation
-		elif msg['type'] == 'noop':
-			print '%s received a NOOP from %s' % (msg['dst'], msg['src'])
-		
-	clock = time.time()
-	if clock-last > 2:
-		# Send a no-op message to a random peer every two seconds, just for fun
-		# You definitely want to remove this from your implementation
-		msg = {'src': my_id, 'dst': random.choice(replica_ids), 'leader': 'FFFF', 'type': 'noop'}
-		sock.send(json.dumps(msg))
-		print '%s sending a NOOP to %s' % (msg['src'], msg['dst'])
-		last = clock
+class State(Enum):
+    """Represents the possible server states at any given time"""
+    LEADER = 1
+    FOLLOWER = 2
+    CANDIDATE = 3
+
+
+class Sock:
+    def __init__(self, lan):
+        self.sock = self.__create_socket(lan) # socket over which all messages will occur
+
+    def __create_socket(self, lan):
+        """Creates and returns a connected socket"""
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        sock.connect(lan)
+        return sock
+
+    def recv(self):
+        """Returns the data from the socket as a deserialized JSON object"""
+        msg_raw = self.sock.recv(MAX_BYTES)
+        msg = json.loads(bytes.decode(msg_raw)) if len(msg_raw) != 0 else {}
+        return msg
+
+    def send(self, msg):
+        """Sends a JSON object through the socket"""
+        msg = str.encode(json.dumps(msg))
+        self.sock.send(msg)
+
+
+class Server:
+    def __init__(self, id, replicas):
+        self.id = id # own ID
+        self.replicas = replicas # IDs of all other replicas
+        self.sock = Sock(id) # Sock object for sending/receiving messsages
+        self.datastore = {} # state machine containing all key-value pairs
+        self.state = State.FOLLOWER # current state; initialized to follower
+        self.leader = 'FFFF' # ID of the assumed leader
+        # election timeout chosen randomly from fixed interval of 0.15-0.3 s
+        self.election_timeout = random.uniform(0.15, 0.3)
+        self.prev_timeout = current_time() # timestamp of previous timeout
+        self.votes = set() # votes received during the election process
+
+        # ---------------------- PERSISTENT STATE (ALL) -----------------------
+        self.current_term = 0 # latest term server has seen
+        self.voted_for = None # ID of candidate that received vote in current term
+        # log entries; each entry contains command and term (first index is 1)
+        self.log = [{'command': None, 'term': None}]
+
+        # ----------------------- VOLATILE STATE (ALL) ------------------------
+        self.commit_idx = 0 # index of highest log entry known to be committed
+        self.last_applied = 0 # index of highest log entry applied to state machine
+
+        # --------------------- VOLATILE STATE (LEADER) -----------------------
+        self.next_idx = {} # index of next log entry to send to each server
+        self.match_idx = {} # index of highest log entry known on each server
+        self.prev_heartbeat = current_time() # timestamp of previous heartbeat
+
+        # Start heartbeat thread
+        threading.Thread(target=self.send_heartbeat).start()
+
+    def reset_timeouts(self):
+        """Resets the election and leader timeouts"""
+        # Reset election timer
+        self.election_timeout = random.uniform(0.15, 0.3)
+        # Reset the previous timeout
+        self.prev_timeout = current_time()
+
+    def start_election(self):
+        """Handles what happens when a node becomes a candidate"""
+        # Switch to candidate state
+        self.state = State.CANDIDATE
+        # Increment the current term
+        self.current_term += 1
+        # Reset any votes from a previous election
+        self.votes = set()
+        # Vote for self
+        self.voted_for = self.id
+        self.votes.add(self.id)
+        # Reset timeouts
+        self.reset_timeouts()
+
+    def send_request_vote(self):
+        """Sends RequestVote RPCs to all other servers"""
+        last_log_idx = len(self.log) - 1
+        for replica in self.replicas:
+            msg = {
+                'src': self.id,
+                'dst': replica,
+                'leader': self.leader,
+                'type': 'request_vote',
+                # Candidate's term
+                'term': self.current_term,
+                # Index of candidate's last log entry
+                'last_log_idx': last_log_idx,
+                # Term of candidate's last log entry
+                'last_log_term': self.log[last_log_idx]['term']
+            }
+            self.sock.send(msg)
+
+    def check_timeout(self):
+        """Determines if an election needs to take place"""
+        time = current_time()
+
+        if self.state != State.LEADER:
+            if (time - self.prev_timeout) >= self.election_timeout:
+                # Election timeout met, so start election
+                self.start_election()
+                # Send RequestVote RPCs to all other servers
+                self.send_request_vote()
+
+    def handle_request_vote(self, msg):
+        """Handles a RequestVote RPC from a candidate"""
+        # Invalid if candidate's term < receiver's term
+        if msg['term'] < self.current_term:
+            return False
+        # Grant vote if voted_for is null or equal to candidate's ID and
+        # candidate's log is at least as up-to-date as receiver's log
+        elif ((not self.voted_for or self.voted_for == msg['src']) and 
+            msg['last_log_idx'] >= len(self.log) - 1):
+            resp = {
+                'src': self.id,
+                'dst': msg['src'],
+                'leader': self.leader,
+                'type': 'vote_granted'
+            }
+            self.sock.send(resp)
+        else:
+            return False
+
+    def reset_volatile_leader_state(self):
+        """Resets the volatile state on leaders"""
+        for replica in self.replicas:
+            # For each server, index of next log entry to send to that server
+            # (initialized to leader last log index + 1)
+            self.next_idx[replica] = self.commit_idx + 1
+            # For each server, index of highest log entry known to be 
+            # replicated on server (initialized to 0, increases monotonically)
+            self.match_idx[replica] = 0
+
+    def handle_received_vote(self, msg):
+        """Handles a received vote during an election"""
+        # Add the vote
+        self.votes.add(msg['src'])
+        # Check if the election was won
+        quorum = math.floor(len(self.replicas)) + 1
+        if len(self.votes) >= quorum:
+            # Become the new leader
+            self.state = State.LEADER
+            self.leader = self.id
+            # Re-initialize any necessary fields
+            self.commit_idx = len(self.log)
+            self.prev_heartbeat = current_time()
+            self.reset_volatile_leader_state()
+
+    def send_redirect(self, msg):
+        """Sends a redirect message back to the client""" 
+        msg_template = {
+            'src': self.id,
+            'dst': msg['src'],
+            'leader': self.leader,
+            'type': 'redirect',
+            'MID': msg['MID']
+        }
+        self.sock.send(msg_template)
+
+    def send_ok(self, msg, overwrite):
+        """Sends an OK message back to the client"""
+        msg_template = {
+            'src': self.id,
+            'dst': msg['src'],
+            'leader': self.leader,
+            'type': 'ok',
+            'MID': msg['MID']
+        }
+        # Override template with supplied values
+        # (need to add value if responding to get request)
+        msg_template = dict(msg_template, **overwrite)
+        self.sock.send(msg_template)
+
+    def send_fail(self, msg):
+        """Sends a fail message back to the client"""
+        msg_template = {
+            'src': self.id,
+            'dst': msg['src'],
+            'leader': self.leader,
+            'type': 'fail',
+            'MID': msg['MID']
+        }
+        self.sock.send(msg_template)
+
+    def send_append_entries(self, append_type):
+        """Sends an AppendEntries RPC to all replicas"""
+        msg_template = {
+            'src': self.id, 
+            # Used for followers to redirect clients
+            'leader': self.leader,
+            'type': 'append_entries',
+            # Leader's term
+            'term': self.current_term,
+            # Term of prev_log_idx entry
+            'prev_log_term': self.current_term,
+            # Log entries to store (empty for heartbeat)
+            'entries': [],
+            # Leader's commit_idx
+            'leader_commit': self.commit_idx
+        }
+        # Populate entries if this is not a heartbeat
+        # TODO: is this what we're supposed to set?
+        if append_type != 'heartbeat':
+            msg_template['entries'] = self.log
+        # Send out the RPC
+        for replica in self.replicas:
+            # Set the destination
+            msg_template['dst'] = replica
+            # Set the index of log entry immediately preceding new ones
+            prev_log_idx = self.next_idx[replica] - 1
+            msg_template['prev_log_idx'] = prev_log_idx
+            # Set the term of prev_log_idx entry if it exists in the log
+            if prev_log_idx < len(self.log):
+                msg_template['prev_log_term'] = self.log[prev_log_idx]['term']
+            # Send the message
+            self.sock.send(msg_template)
+
+    def follow(self):
+        """Handles what happens when a node becomes a follower"""
+        self.state = State.FOLLOWER
+        self.voted_for = None
+        self.votes = []
+        self.reset_timeouts()
+
+    def handle_append_entries(self):
+        """Handles an AppendEntries RPC from a leader"""
+        prev_log_idx = msg['prev_log_idx']
+        prev_log_term = msg['prev_log_term']
+
+        # Invalid if leader's term < receiver's term
+        if msg['term'] < self.current_term:
+            return False
+        # Log doesn't contain entry at prev_log_idx whose term 
+        # matches prev_log_term
+        elif ((prev_log_idx >= len(self.log)) or 
+            (self.log[prev_log_idx]['term'] != prev_log_term)):
+            return False
+        # Switch to candidate if there is already a valid leader
+        if self.state == State.CANDIDATE and msg['term'] >= self.current_term:
+            self.follow()
+        # TODO: the rest of this function
+        else:
+            # If existing entry conflicts with new one (same idx but different 
+            # terms), delete existing entry and all that follow it
+            return True
+
+    def send_heartbeat(self):
+        """Sends periodic heartbeats as the leader"""
+        time = current_time()
+        while True:
+            if self.state == State.LEADER:
+                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                    self.send_append_entries('heartbeat')
+                    # Reset the heartbeat timer
+                    self.prev_heartbeat = time
+
+    def handle_heartbeat(self, msg):
+        """Handles a heartbeat AppendEntries RPC from a leader"""
+        self.reset_timeouts()
+
+    def handle_put(self, msg):
+        """Handles a put request from the client"""
+        if self.state != State.LEADER:
+            # Send fail if leader unknown
+            if self.leader == 'FFFF':
+                self.send_fail(msg)
+            # Else, redirect to the leader
+            else:
+                self.send_redirect(msg)
+            return
+
+        # Append entry to local log
+        key = msg['key']
+        value = msg['value']
+        entry = {
+            'command': 'put',
+            'MID': msg['MID'],
+            'key': key,
+            'value': value,
+            'term': self.current_term
+        }
+        self.log.append(entry)
+        self.commit_idx = len(self.log)
+
+        # Commit to the state machine
+        # TODO: Wait for quorum
+        self.datastore[key] = value
+
+        # Reply to client
+        self.send_ok(msg, {})
+
+    def handle_get(self, msg):
+        """Handles a get request from the client"""
+        if self.state != State.LEADER:
+            # Send fail if leader unknown
+            if self.leader == 'FFFF':
+                self.send_fail(msg)
+            # Else, redirect to the leader
+            else:
+                self.send_redirect(msg)
+            return
+
+        # Respond with the value if it exists
+        value = self.datastore.get(msg['key'])
+        if value:
+            self.send_ok(msg, {'value': value})
+        else:
+            self.send_fail(msg)
+
+    def handle_data(self, msg):
+        """Handles the data received from the socket accordingly"""
+        time = current_time()
+
+        # TODO: add a type for AppendEntries RPC responses
+        if msg['type'] == 'append_entries':
+            # Heartbeat
+            if not msg['entries']:
+                self.handle_heartbeat(msg)
+            # RPC from leader to replicate log entries
+            else:
+                self.handle_append_entries(msg)
+        # RPC to vote in an election
+        elif msg['type'] == 'request_vote':
+            self.handle_request_vote(msg)
+        # Vote received
+        elif msg['type'] == 'vote_granted' and self.state == State.CANDIDATE:
+            self.handle_received_vote(msg)
+        # Get request from client
+        elif msg['type'] == 'get':
+            self.handle_get(msg)
+        # Put request from client
+        elif msg['type'] == 'put':
+            self.handle_put(msg)
+
+    def run(self):
+        """Runs the main loop"""
+        while True:
+            # Check for an election timeout
+            self.check_timeout()
+
+            ready = select.select([self.sock.sock], [], [], 0.1)[0]
+    
+            if self.sock.sock in ready:
+                msg = self.sock.recv()
+
+                # Skip if there is no data
+                if not msg:
+                    continue
+                # Else, handle the message
+                else:
+                    self.handle_data(msg)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Distributed Key-Value Store.',
+                                     add_help=False)
+    parser.add_argument('id',
+                        help='ID of your replica (four-digit hex)')
+    parser.add_argument('replicas',
+                        nargs='+',
+                        help='IDs of all other replicas (four-digit hexs)')
+    args = parser.parse_args()
+
+    # Initialize the datastore with the arguments passed
+    server = Server(args.id, args.replicas)
+
+    # Start the program
+    server.run()

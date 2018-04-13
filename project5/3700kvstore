@@ -50,7 +50,16 @@ class Sock:
         self.sock.send(msg)
 
 
-class Server:
+class FollowerMixin:
+    pass
+
+class LeaderMixin:
+    pass
+
+class CandidateMixen:
+    pass
+
+class Server(FollowerMixin, LeaderMixin, CandidateMixin):
     def __init__(self, id, replicas):
         self.id = id # own ID
         self.replicas = replicas # IDs of all other replicas
@@ -165,7 +174,7 @@ class Server:
         # Add the vote
         self.votes.add(msg['src'])
         # Check if the election was won
-        quorum = math.floor(len(self.replicas)) + 1
+        quorum = len(self.replicas)//2 + 1
         if len(self.votes) >= quorum:
             # Become the new leader
             self.state = State.LEADER
@@ -378,6 +387,7 @@ class Server:
                 # Else, handle the message
                 else:
                     self.handle_data(msg)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Distributed Key-Value Store.',

@@ -283,7 +283,7 @@ class Server:
         """Handles a get request from the client"""
         if self.state == State.LEADER:
             # Respond with the value if it exists
-            self.send_ok(self.datastore.get(msg['key'], ''))
+            self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
         elif self.leader == 'FFFF':
             self.send_fail(msg)
         else:

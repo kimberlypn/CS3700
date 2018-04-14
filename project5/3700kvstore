@@ -83,6 +83,7 @@ class Server:
     
     def transition_to_state(self, state):
         if state == State.LEADER:
+            logging.info('Transitioning to leader')
             # Re-initialize any necessary fields
             self.state = State.LEADER
             self.leader = self.id
@@ -97,12 +98,14 @@ class Server:
                 self.match_idx[replica] = 0
             
         elif state == State.FOLLOWER:
+            logging.info('Transitioning to follower')
             self.state = State.FOLLOWER
             self.voted_for = None
             self.votes = []
             self.reset_timeouts()
 
         elif state == State.CANDIDATE:
+            logging.info('Transitioning to candidate')
             self.state = State.CANDIDATE
             self.leader = 'FFFF' # ID of the assumed leader
             self.reset_timeouts()
@@ -139,7 +142,7 @@ class Server:
             'term': self.current_term
         }
         msg.update(**kwargs)
-        logging.info('Replica ' + self.id + ' sending ' +json.dumps(msg))
+        logging.debug('Replica ' + self.id + ' sending ' +json.dumps(msg))
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
@@ -308,7 +311,7 @@ class Server:
                     continue
                 # Else, handle the message
                 else:
-                    logging.info('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+                    logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                     self.dispatch(msg['type'], msg)
 
 

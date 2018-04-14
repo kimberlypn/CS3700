@@ -276,7 +276,7 @@ class Server:
         self.datastore[key] = value
 
         # Reply to client
-        self.send_ok(msg, {})
+        self.send_ok(msg)
 
     @dispatch.add('get')
     def handle_get(self, msg):

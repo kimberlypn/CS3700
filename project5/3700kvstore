@@ -232,7 +232,7 @@ class Server:
                     self.log[prev_log_idx]['term'], prev_log_idx)    
         
     @dispatch.add('append_entries')
-    def handle_append_entries(self):
+    def handle_append_entries(self, msg):
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']

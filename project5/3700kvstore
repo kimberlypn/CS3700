@@ -2,6 +2,7 @@
 import argparse
 import enum
 import json
+import logging
 import math
 import random
 import select
@@ -190,7 +191,7 @@ class Server:
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
-        if msg['term'] < self.current_term:
+        if self.current_term <= msg['term']:
             if self.voted_for is None or self.voted_for == msg['src']:
                 if msg['last_log_idx'] >= self.last_log_idx:
                     self.reply(msg, type='vote_granted')

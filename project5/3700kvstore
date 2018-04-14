@@ -83,30 +83,12 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         # Start heartbeat thread
-        threading.Thread(target=lambda(self.heartbeat_thread).start()
+        threading.Thread(target=self.heartbeat_thread).start()
 
     @property
     def last_log_idx(self):
         return len(self.log) - 1
     
-    @myutils.FunctionDispatcher.decorate
-    def dispatch(self, key, *args, **kwargs):
-        pass
-
-    def send(self, dst, **kwargs):
-        msg = {
-            'src': self.id,
-            'leader': self.leader,
-            'term': self.current_term
-        }
-        msg.update(**kwargs)
-        self.sock.send(msg)
-        
-    def reply(self, msg, **kwargs):
-        mymsg = msg.copy()
-        mymsg.update(src=msg['dst'], dst=msg['src'])
-        self.sock.send(mymsg, **kwargs)
-
     def transition_to_state(self, state):
         if state == State.LEADER:
             # Re-initialize any necessary fields
@@ -157,6 +139,48 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
         self.election_timeout = random.uniform(0.15, 0.3)
         self.prev_timeout = current_time()
 
+    def send(self, dst, **kwargs):
+        msg = {
+            'src': self.id,
+            'leader': self.leader,
+            'term': self.current_term
+        }
+        msg.update(**kwargs)
+        self.sock.send(msg)
+        
+    def reply(self, msg, **kwargs):
+        mymsg = msg.copy()
+        mymsg.update(src=msg['dst'], dst=msg['src'])
+        self.sock.send(mymsg, **kwargs)
+
+    def send_redirect(self, msg):
+        """Sends a redirect message back to the client"""
+        self.reply(msg, type='redirect')
+
+    def send_ok(self, msg, **kwargs):
+        """Sends an OK message back to the client"""
+        self.reply(msg, type='ok', **kwargs)
+
+    def send_fail(self, msg):
+        """Sends a fail message back to the client"""
+        self.reply(msg, type='fail')
+
+    def heartbeat_thread(self):
+        """Sends periodic heartbeats as the leader"""
+        time = current_time()
+        while True:
+            if self.state == State.LEADER:
+                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                    for replica in self.replicas:
+                        self.send_append_entries(replica,
+                                prev_log_term=self.current_term)
+                    # Reset the heartbeat timer
+                    self.prev_heartbeat = time
+
+    @myutils.FunctionDispatcher.decorate
+    def dispatch(self, key, *args, **kwargs):
+        pass
+
     def send_request_vote(self):
         """Sends RequestVote RPCs to all other servers"""
         last_log_idx = len(self.log) - 1
@@ -170,6 +194,7 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
             }
             self.sock.send(msg)
 
+    @dispatch.add('request_vote')
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         if msg['term'] < self.current_term:
@@ -177,25 +202,13 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
                 if msg['last_log_idx'] >= self.last_log_idx:
                     self.reply(msg, type='vote_granted')
 
+    @dispatch.add('vote_granted')
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
         self.votes.add(msg['src'])
         quorum = len(self.replicas)//2 + 1
         if len(self.votes) >= quorum:
             self.transition_to_state(State.LEADER)
-
-
-    def send_redirect(self, msg):
-        """Sends a redirect message back to the client"""
-        self.reply(msg, type='redirect')
-
-    def send_ok(self, msg, **kwargs):
-        """Sends an OK message back to the client"""
-        self.reply(msg, type='ok', **kwargs)
-
-    def send_fail(self, msg):
-        """Sends a fail message back to the client"""
-        self.reply(msg, type='fail')
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -217,6 +230,7 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
             self.send_append_entries(replica, self.log[prev_log_idx:], 
                     self.log[prev_log_idx]['term'], prev_log_idx)    
         
+    @dispatch.add('append_entries')
     def handle_append_entries(self):
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
@@ -238,18 +252,7 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
             self.log.extend(msg['entries'])
             self.send_ok(msg)
 
-    def heartbeat_thread(self):
-        """Sends periodic heartbeats as the leader"""
-        time = current_time()
-        while True:
-            if self.state == State.LEADER:
-                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
-                    for replica in self.replicas:
-                        self.send_append_entries(replica,
-                                prev_log_term=self.current_term)
-                    # Reset the heartbeat timer
-                    self.prev_heartbeat = time
-
+    @dispatch.add('put')
     def handle_put(self, msg):
         """Handles a put request from the client"""
         if self.state != State.LEADER:
@@ -281,48 +284,16 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
         # Reply to client
         self.send_ok(msg, {})
 
+    @dispatch.add('get')
     def handle_get(self, msg):
         """Handles a get request from the client"""
-        if self.state != State.LEADER:
-            # Send fail if leader unknown
-            if self.leader == 'FFFF':
-                self.send_fail(msg)
-            # Else, redirect to the leader
-            else:
-                self.send_redirect(msg)
-            return
-
-        # Respond with the value if it exists
-        value = self.datastore.get(msg['key'])
-        if value:
-            self.send_ok(msg, {'value': value})
-        else:
+        if self.state == State.LEADER:
+            # Respond with the value if it exists
+            self.send_ok(self.datastore.get(msg['key'], ''))
+        elif self.leader == 'FFFF':
             self.send_fail(msg)
-
-    def dispatch_message(self, msg):
-        """Handles the data received from the socket accordingly"""
-        {
-            'append_entries': self.handle_append_entries,
-            'request_vote': self.hanfle_request_vote,
-            'vote_granted': self.handle_recieved_vote,
-            'get': self.handle_get,
-            'put': self.handle_put        
-        }[msg['type']](msg)
-        # TODO: add a type for AppendEntries RPC responses
-        if msg['type'] == 'append_entries':
-            self.handle_append_entries(msg)
-        # RPC to vote in an election
-        elif msg['type'] == 'request_vote':
-            self.handle_request_vote(msg)
-        # Vote received
-        elif msg['type'] == 'vote_granted' and self.state == State.CANDIDATE:
-            self.handle_received_vote(msg)
-        # Get request from client
-        elif msg['type'] == 'get':
-            self.handle_get(msg)
-        # Put request from client
-        elif msg['type'] == 'put':
-            self.handle_put(msg)
+        else:
+            self.send_redirect(msg)
 
     def run(self):
         """Runs the main loop"""
@@ -342,17 +313,15 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
                     continue
                 # Else, handle the message
                 else:
-                    self.dispatch_message(msg)
+                    self.dispatch(msg['type'], msg)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Distributed Key-Value Store.',
-                                     add_help=False)
-    parser.add_argument('id',
-                        help='ID of your replica (four-digit hex)')
+    parser = argparse.ArgumentParser(description='Distributed Key-Value Store',
+            add_help=False)
+    parser.add_argument('id', help='ID of your replica (four-digit hex)')
     parser.add_argument('replicas',
-                        nargs='+',
-                        help='IDs of all other replicas (four-digit hexs)')
+            nargs='+', help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
     # Initialize the datastore with the arguments passed

@@ -133,6 +133,7 @@ class Server:
     def send(self, dst, **kwargs):
         msg = {
             'src': self.id,
+            'dst': dst,
             'leader': self.leader,
             'term': self.current_term
         }
@@ -176,7 +177,6 @@ class Server:
         """Sends RequestVote RPCs to all other servers"""
         for replica in self.replicas:
             self.send(replica, **{
-                'dst': replica,
                 'type': 'request_vote',
                 # Index of candidate's last log entry
                 'last_log_idx': self.last_log_idx,

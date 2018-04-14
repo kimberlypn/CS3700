@@ -142,8 +142,9 @@ class Server:
         
     def reply(self, msg, **kwargs):
         mymsg = msg.copy()
-        mymsg.update(src=msg['dst'], dst=msg['src'])
-        self.send(mymsg, **kwargs)
+        dst = msg['src']
+        mymsg.update(src=msg['dst'])
+        self.send(dst, **mymsg)
 
     def send_redirect(self, msg):
         """Sends a redirect message back to the client"""

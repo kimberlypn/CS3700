@@ -179,9 +179,9 @@ class Server:
                 'dst': replica,
                 'type': 'request_vote',
                 # Index of candidate's last log entry
-                'last_log_idx': last_log_idx,
+                'last_log_idx': self.last_log_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[last_log_idx]['term']
+                'last_log_term': self.log[self.last_log_idx]['term']
             })
 
     @dispatch.add('request_vote')

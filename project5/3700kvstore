@@ -55,7 +55,6 @@ class Server:
         self.replicas = replicas 
         self.sock = SimulatorSocket(self.id)
         self.datastore = {} # state machine containing all key-value pairs
-        self.transition_to_state(State.CANDIDATE)
         self.reset_timeouts()
 
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
@@ -75,6 +74,7 @@ class Server:
 
         # Start heartbeat thread
         threading.Thread(target=self.heartbeat_thread).start()
+        self.transition_to_state(State.CANDIDATE)
 
     @property
     def last_log_idx(self):

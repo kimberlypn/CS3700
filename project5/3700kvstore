@@ -191,8 +191,7 @@ class Server(FollowerMixin, LeaderMixin, CandidateMixin):
                 'last_log_idx': last_log_idx,
                 # Term of candidate's last log entry
                 'last_log_term': self.log[last_log_idx]['term']
-            }
-            self.sock.send(msg)
+            })
 
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):

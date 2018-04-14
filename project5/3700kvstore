@@ -73,8 +73,8 @@ class Server:
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         # Start heartbeat thread
-        threading.Thread(target=self.heartbeat_thread).start()
         self.transition_to_state(State.CANDIDATE)
+        threading.Thread(target=self.heartbeat_thread).start()
 
     @property
     def last_log_idx(self):

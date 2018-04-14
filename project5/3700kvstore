@@ -139,7 +139,7 @@ class Server:
             'term': self.current_term
         }
         msg.update(**kwargs)
-        logging.info('Replica ' + self.id + 'sending ' +json.dumps(msg))
+        logging.info('Replica ' + self.id + ' sending ' +json.dumps(msg))
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
@@ -308,6 +308,7 @@ class Server:
                     continue
                 # Else, handle the message
                 else:
+                    logging.info('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                     self.dispatch(msg['type'], msg)
 
 

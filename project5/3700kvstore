@@ -193,7 +193,8 @@ class Server:
         """Handles a RequestVote RPC from a candidate"""
         if self.current_term <= msg['term']:
             if self.voted_for is None or self.voted_for == msg['src']:
-                if msg['last_log_idx'] >= self.last_log_idx:
+                if self.last_log_idx <= msg['last_log_idx']:
+                    self.voted_for = msg['src']
                     self.reply(msg, type='vote_granted')
 
     @dispatch.add('vote_granted')

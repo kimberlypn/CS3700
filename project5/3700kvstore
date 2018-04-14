@@ -144,6 +144,7 @@ class Server:
         mymsg = msg.copy()
         dst = msg['src']
         mymsg.update(src=msg['dst'])
+        del mymsg['dst']
         self.send(dst, **mymsg)
 
     def send_redirect(self, msg):

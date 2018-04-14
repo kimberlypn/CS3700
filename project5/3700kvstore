@@ -138,12 +138,13 @@ class Server:
             'term': self.current_term
         }
         msg.update(**kwargs)
+        logging.info('Replica ' + self.id + 'sending ' +json.dumps(msg))
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
         mymsg = msg.copy()
         dst = msg['src']
-        mymsg.update(src=msg['dst'])
+        mymsg.update(src=msg['dst'], **kwargs)
         del mymsg['dst']
         self.send(dst, **mymsg)
 

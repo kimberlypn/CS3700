@@ -143,7 +143,7 @@ class Server:
     def reply(self, msg, **kwargs):
         mymsg = msg.copy()
         mymsg.update(src=msg['dst'], dst=msg['src'])
-        self.sock.send(mymsg, **kwargs)
+        self.send(mymsg, **kwargs)
 
     def send_redirect(self, msg):
         """Sends a redirect message back to the client"""

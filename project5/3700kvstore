@@ -49,16 +49,7 @@ class SimulatorSocket:
         self.sock.send(msg)
 
 
-class FollowerMixin:
-    pass
-
-class LeaderMixin:
-    pass
-
-class CandidateMixen:
-    pass
-
-class Server(FollowerMixin, LeaderMixin, CandidateMixin):
+class Server:
     def __init__(self, id_, replicas):
         self.id = id_
         self.replicas = replicas 

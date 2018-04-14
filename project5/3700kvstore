@@ -318,6 +318,9 @@ if __name__ == '__main__':
             nargs='+', help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
+    logging.basicConfig(filename=args.id + '.log',level=logging.INFO)
+
+
     # Initialize the datastore with the arguments passed
     server = Server(args.id, args.replicas)
     server.run()

@@ -96,6 +96,8 @@ class Server:
                 # For each server, index of highest log entry known to be 
                 # replicated on server (initialized to 0, increases monotonically)
                 self.match_idx[replica] = 0
+
+            self.broadcast_heartbeat()
             
         elif state == State.FOLLOWER:
             logging.info('Transitioning to follower')
@@ -164,15 +166,16 @@ class Server:
         """Sends a fail message back to the client"""
         self.reply(msg, type='fail')
 
+    def broadcast_heartbeat(self):
+        for replica in self.replicas:
+            self.send_append_entries(replica, prev_log_term=self.current_term)
     def heartbeat_thread(self):
         """Sends periodic heartbeats as the leader"""
         time = current_time()
         while True:
             if self.state == State.LEADER:
                 if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
-                    for replica in self.replicas:
-                        self.send_append_entries(replica,
-                                prev_log_term=self.current_term)
+                    self.broadcast_heartbeat()
                     # Reset the heartbeat timer
                     self.prev_heartbeat = time
 

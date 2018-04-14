@@ -110,7 +110,7 @@ class Server:
             # Reset any votes from a previous election
             self.votes = set()
             # Vote for self
-            self.voted_for = self.id
+            self.voted_for = None
             self.votes.add(self.id)
             
         else:

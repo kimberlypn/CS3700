@@ -174,9 +174,9 @@ class Server:
 
     def send_request_vote(self):
         """Sends RequestVote RPCs to all other servers"""
-        last_log_idx = len(self.log) - 1
         for replica in self.replicas:
             self.send(replica, **{
+                'dst': replica,
                 'type': 'request_vote',
                 # Index of candidate's last log entry
                 'last_log_idx': last_log_idx,

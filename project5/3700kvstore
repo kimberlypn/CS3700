@@ -404,7 +404,10 @@ if __name__ == '__main__':
             nargs='+', help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
-    logging.basicConfig(filename=args.id + '.log',level=logging.INFO)
+    if 'DEBUG_LEVEL' in os.environ:
+        level = getattr(logging, os.environ['DEBUG_LEVEL'])
+        logging.basicConfig(filename=args.id + '.log',
+                level=level, format='%(asctime)s %(message)s')
 
 
     # Initialize the datastore with the arguments passed

@@ -198,7 +198,7 @@ class Server:
                 # Index of candidate's last log entry
                 'last_log_idx': self.last_log_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[-1]['term']
+                'last_log_term': self.log[-1]['term'] if self.log else 0
             })
 
     def msg_up_to_date(self, msg):

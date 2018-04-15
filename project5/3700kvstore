@@ -198,15 +198,19 @@ class Server:
     def dispatch(self, key, *args, **kwargs):
         pass
 
+    ##
+    # RequestVotesRPC
+    ##
+
     def send_request_vote(self):
         """Sends RequestVote RPCs to all other servers"""
         for replica in self.replicas:
             self.send(replica, **{
                 'type': 'request_vote',
                 # Index of candidate's last log entry
-                'last_log_idx': self.last_log_idx,
+                'last_log_idx': self.comitted_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[self.last_log_idx]['term']
+                'last_log_term': self.log[self.comitted_idx]['term']
             })
 
     @dispatch.add('request_vote')
@@ -214,7 +218,7 @@ class Server:
         """Handles a RequestVote RPC from a candidate"""
         if self.current_term <= msg['term']:
             logging.info('Term {} got RV with Term {}'.format(self.current_term, msg['term']))
-            if self.last_log_idx <= msg['last_log_idx']:
+            if self.commit_idx <= msg['last_log_idx']:
                 if self.current_term < msg['term']:
                     self.current_term = msg['term']
                     self.voted_for = None
@@ -230,6 +234,10 @@ class Server:
         self.votes.add(msg['src'])
         if len(self.votes) >= self.quorum:
             self.transition_to_state(State.LEADER)
+
+    ##
+    # AppendEntriesRPC
+    ##
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -277,6 +285,7 @@ class Server:
             else:
                 self.log = self.log[:prev_log_idx + 1]
                 self.log.extend(msg['entries'])
+                self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
                 self.send_ok(msg)
 
     @dispatch.add('ok')
@@ -305,6 +314,10 @@ class Server:
                 self.try_append_entries(msg['src'])
             else:
                 raise 1
+
+    ##
+    # Client Interface
+    ##
 
     @dispatch.add('put')
     def handle_put(self, msg):

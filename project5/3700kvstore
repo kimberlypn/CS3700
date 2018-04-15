@@ -329,7 +329,8 @@ class Server:
             'value': value,
             'term': self.current_term
         }
-        self.broadcast_append_entries(entry)
+        self.log.append(entry)
+        self.broadcast_append_entries()
 
     @dispatch.add('get')
     def handle_get(self, msg):

@@ -382,7 +382,7 @@ class Server:
             msg = self.sock.recv(timeout=0.05)
             if msg:
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
-                if self.current_term < msg['term']:
+                if 'term' in msg and self.current_term < msg['term']:
                     self.transition_to_state(State.FOLLOWER, msg)
                 self.dispatch(msg['type'], msg)
 

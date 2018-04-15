@@ -39,7 +39,7 @@ class SimulatorSocket:
         self.sock.connect(lan)
 
         self.poll = select.poll()
-        self.poll.register(self.sock.sock, select.POLLIN)
+        self.poll.register(self.sock.fileno(), select.POLLIN)
 
     def recv(self, timeout=None):
         """Returns the data from the socket as a deserialized JSON object"""

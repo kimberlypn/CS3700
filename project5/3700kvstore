@@ -224,6 +224,7 @@ class Server:
                     logging.info('Term {} Voted for {}'.format(self.current_term,
                             self.voted_for))
                     self.reply(msg, type='response_vote', value='true')
+                    self.reset_timeouts()
                 else:
                     reject('already voted this term')
             else:

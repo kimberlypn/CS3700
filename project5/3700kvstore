@@ -357,7 +357,7 @@ class Server:
 
     def apply(self, entries):
         for e in entries:
-            if e['command'] = put:
+            if e['command'] == 'put':
                 self.datastore[e['key']] = e['value']
 
     def run(self):

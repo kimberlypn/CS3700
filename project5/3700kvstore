@@ -68,7 +68,7 @@ class Server:
         self.current_term = 0 # latest term server has seen
         self.voted_for = None # ID of candidate that received vote in current term
         # log entries; each entry contains command and term (first index is 1)
-        self.log = [{'command': None, 'term': None}]
+        self.log = [{'command': None, 'term': 0}]
 
         # ----------------------- VOLATILE STATE (ALL) ------------------------
         self.commit_idx = 0 # index of highest log entry known to be committed

@@ -206,6 +206,7 @@ class Server:
                     self.votes -= set(self.id)
                 elif self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
+                    logging.info('Term {} Voted for {}'.format(self.current_term, self.voted_for))
                     self.reply(msg, type='vote_granted')
 
     @dispatch.add('vote_granted')

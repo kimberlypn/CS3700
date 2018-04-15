@@ -1,4 +1,4 @@
-#!/usr/bin/python3 -u
+t#!/usr/bin/python3 -u
 import argparse
 import enum
 import json
@@ -38,11 +38,17 @@ class SimulatorSocket:
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.sock.connect(lan)
 
-    def recv(self):
+        self.poll = select.poll()
+        self.poll.register(self.sock.sock, select.POLLIN)
+
+    def recv(self, timeout=None):
         """Returns the data from the socket as a deserialized JSON object"""
-        msg_raw = self.sock.recv(MAX_BYTES)
-        msg = json.loads(bytes.decode(msg_raw)) if len(msg_raw) != 0 else {}
-        return msg
+        if self.poll.poll(timeout):
+            msg_raw = self.sock.recv(MAX_BYTES)
+            msg = json.loads(bytes.decode(msg_raw)) if len(msg_raw) != 0 else {}
+            return msg
+        else:
+            return None
 
     def send(self, msg):
         """Sends a JSON object through the socket"""
@@ -80,6 +86,10 @@ class Server:
     @property
     def last_log_idx(self):
         return len(self.log) - 1
+        
+    @property
+    def quorum(self):
+        return len(self.replicas)//2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
@@ -218,12 +228,8 @@ class Server:
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
         self.votes.add(msg['src'])
-        quorum = len(self.replicas)//2 + 1
-        if len(self.votes) >= quorum:
+        if len(self.votes) >= self.quorum:
             self.transition_to_state(State.LEADER)
-
-    def append_entry(self, entry):
-        pass
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -248,7 +254,6 @@ class Server:
         """Sends an AppendEntries RPC to all replicas"""
         for replica in self.replicas:
             try_append_entries(replica)
-            prev_log_idx = self.next_idx[replica] - 1
         
     @dispatch.add('append_entries')
     def handle_append_entries(self, msg):
@@ -279,7 +284,22 @@ class Server:
     def handle_appened_entries_resp(self, msg):
         if self.state == State.LEADER:
             if msg['type'] == 'ok':
-                self.next_idx[msg['src']] += 1
+                self.next_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
+                # given N replicas, N/2 + 1 form a quorum. If you sort the current
+                # index each is on, the N//2 + 1'th index (middle index) is the one
+                # which brings something into the majorty and commits it
+                #
+                # From this replicas persective, the message was already ready to
+                # be comitted, so only need N//2 confirmations. Therfore the second
+                # highest index is the one to mark comitted
+                2nd_highest_idx = sorted(self.next_idx.values())[-2]
+                if self.commit_idx < 2nd_highest_idx:
+                    self.commit_idx += 1
+                    if self.commit_idx != 2nd_highest_idx:
+                        raise 1
+                    entry = self.log[self.commit_idx] 
+                    self.send_ok(entry['msg'])
+
             elif msg['type'] == 'fail':
                 self.next_idx[msg['src']] = max(self.next_idx[msg['src']] - 1, 0)
                 self.try_append_entries(msg['src'])
@@ -303,13 +323,13 @@ class Server:
         value = msg['value']
         entry = {
             'command': 'put',
+            'msg': msg,
             'MID': msg['MID'],
             'key': key,
             'value': value,
             'term': self.current_term
         }
-   #     self.append_entry(entry)
-        self.send_ok(msg)
+        self.broadcast_append_entries(entry)
 
     @dispatch.add('get')
     def handle_get(self, msg):
@@ -330,13 +350,13 @@ class Server:
                 self.transition_to_state(State.CANDIDATE)
                 self.send_request_vote()
 
-            ready = select.select([self.sock.sock], [], [], 0.1)[0]
-    
-            if self.sock.sock in ready:
-                msg = self.sock.recv()
-                
+            if self.messages:
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                 self.dispatch(msg['type'], msg)
+            else:
+                msg = self.sock.recv(timeout=0.1)
+                if msg:
+                    self.messages.append(msg)
 
 
 if __name__ == '__main__':

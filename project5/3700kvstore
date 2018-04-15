@@ -217,10 +217,9 @@ class Server:
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         if self.current_term <= msg['term']:
-            logging.info('Term {} got RV with Term {}'.format(self.current_term, msg['term']))
             if self.commit_idx <= msg['last_log_idx']:
                 if self.current_term < msg['term']:
-                    self.current_term = msg['term']
+                    self.transition_to_state(State.CANDIDATE, term=msg['term'])
                     self.voted_for = None
                     self.votes -= set(self.id)
                 elif self.voted_for is None or self.voted_for == msg['src']:
@@ -356,6 +355,11 @@ class Server:
         else:
             self.send_redirect(msg)
 
+    def apply(self, entries):
+        for e in entries:
+            if e['command'] = put:
+                self.datastore[e['key']] = e['value']
+
     def run(self):
         """Runs the main loop"""
         while True:
@@ -363,6 +367,10 @@ class Server:
                 # Election timeout met, so start election
                 self.transition_to_state(State.CANDIDATE)
                 self.send_request_vote()
+
+            if self.commit_idx > self.last_applied:
+                self.apply(self.log[self.last_applied:self.commit_idx + 1])
+                self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.1)
             if msg:

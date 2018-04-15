@@ -181,7 +181,7 @@ class Server:
 
     def broadcast_heartbeat(self):
         for replica in self.replicas:
-            self.send_append_entries(replica, prev_log_term=self.current_term)
+            self.send_append_entries(replica, prev_log_idx =self.prev_log_idx, prev_log_term=self.log[-1]['term'])
 
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):

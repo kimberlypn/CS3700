@@ -313,7 +313,7 @@ class Server:
 
             elif msg['type'] == 'fail':
                 self.next_idx[msg['src']] = max(self.next_idx[msg['src']] - 1, 0)
-                logging.log('Term {} Decremeting Replica {} next_idx {}'.format(self.current_term, msg['src'], self.next_idx[msg['src']]))
+                logging.info('Term {} Decremeting Replica {} next_idx {}'.format(self.current_term, msg['src'], self.next_idx[msg['src']]))
                 self.try_append_entries(msg['src'])
             else:
                 raise 1

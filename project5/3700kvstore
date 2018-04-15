@@ -219,12 +219,6 @@ class Server:
         if len(self.votes) >= quorum:
             self.transition_to_state(State.LEADER)
 
-    def append_entry(self, entry):
-        self.datastore.append(entry)
-            self.broadcast_append_entries()
-
-        self.commit_idx += 1
-
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
         self.send(replica, **{
@@ -308,7 +302,7 @@ class Server:
             'value': value,
             'term': self.current_term
         }
-        self.append_entry(entry)
+   #     self.append_entry(entry)
         self.send_ok(msg)
 
     @dispatch.add('get')

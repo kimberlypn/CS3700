@@ -81,7 +81,7 @@ class Server:
     def last_log_idx(self):
         return len(self.log) - 1
     
-    def transition_to_state(self, state):
+    def transition_to_state(self, state, msg=None):
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
                 str(self.state), str(state)))
         if state == State.LEADER:
@@ -104,6 +104,7 @@ class Server:
             self.state = State.FOLLOWER
             self.voted_for = None
             self.votes = []
+            self.leader = msg['leader']
             self.reset_timeouts()
 
         elif state == State.CANDIDATE:

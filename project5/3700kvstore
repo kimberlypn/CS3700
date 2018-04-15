@@ -298,7 +298,7 @@ class Server:
     def handle_appened_entries_resp(self, msg):
         if self.state == State.LEADER:
             if msg['type'] == 'ok':
-                self.next_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
+                self.next_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries']) + 1
                 # given N replicas, N/2 + 1 form a quorum. If you sort the current
                 # index each is on, the N//2 + 1'th index (middle index) is the one
                 # which brings something into the majorty and commits it

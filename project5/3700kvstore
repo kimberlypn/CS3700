@@ -255,13 +255,12 @@ class Server:
         })
 
     def try_append_entries(self, replica):
-            prev_log_idx = self.next_idx[replica] - 1
             # Adhering to RAFT ensures that the leader will always have
             # the longest log, no worries about prev_log_idx being out
             # of bounds
             logging.info('Sending AppendEntry(prev_idx, prev_term)')
-            self.send_append_entries(replica, self.log[prev_log_idx:], 
-                    self.log[prev_log_idx]['term'], prev_log_idx)    
+            self.send_append_entries(replica, self.log[self.next_idx[replica]:], 
+                    self.log[self.match_idx[replica]]['term'], self.match_idx[replica])    
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -315,7 +314,9 @@ class Server:
                     self.send_ok(entry['msg'])
 
             elif msg['type'] == 'fail':
-                self.next_idx[msg['src']] = max(self.next_idx[msg['src']] - 1, 0)
+                self.match_idx[msg['src']] -= 1
+                self.next_idx[msg['src']] -= 1
+
                 logging.info('Term {} Decremeting Replica {} next_idx {}'.format(self.current_term, msg['src'], self.next_idx[msg['src']]))
                 self.try_append_entries(msg['src'])
             else:

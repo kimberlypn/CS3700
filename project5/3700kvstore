@@ -309,6 +309,7 @@ class Server:
                 # highest index is the one to mark comitted
                 second_highest_idx = list(sorted(self.match_idx.values()))[-2]
                 if self.commit_idx < second_highest_idx:
+                    logging.info('Committing entry {}'.format(self.commit_idx))
                     self.commit_idx = second_highest_idx
                     entry = self.log[self.commit_idx] 
                     self.send_ok(entry['msg'])

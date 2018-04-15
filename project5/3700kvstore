@@ -151,13 +151,13 @@ class Server:
         self.prev_timeout = current_time()
 
     def send(self, dst, **kwargs):
-        msg = {
+        msg = kwargs.copy()
+        msg.update(**{
             'src': self.id,
             'dst': dst,
             'leader': self.leader,
             'term': self.current_term
-        }
-        msg.update(**kwargs)
+        })
         logging.debug('Replica ' + self.id + ' sending ' +json.dumps(msg))
         self.sock.send(msg)
         

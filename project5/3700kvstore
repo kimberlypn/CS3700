@@ -114,7 +114,6 @@ class Server:
             self.state = State.FOLLOWER
             self.leader = msg['leader']
             self.current_term = msg['term']
-            self.reset_timeouts()
 
         elif state == State.CANDIDATE:
             self.state = State.CANDIDATE

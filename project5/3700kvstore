@@ -85,6 +85,7 @@ class Server:
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
                 str(self.state), str(state)))
         if state == State.LEADER:
+            logging.info('Voted for by {}'.format(str(list(self.votes))))
             # Re-initialize any necessary fields
             self.state = State.LEADER
             self.leader = self.id

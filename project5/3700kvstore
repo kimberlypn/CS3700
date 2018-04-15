@@ -369,11 +369,10 @@ class Server:
 
     def run(self):
         """Runs the main loop"""
-        time = current_time()
         while True:
+            time = current_time()
             if self.state == State.LEADER:
                 span = time - self.prev_heartbeat
-                logging.debug('is leader {} >= {}'.format(span, HEARTBEAT_FREQ))
                 if span >= HEARTBEAT_FREQ:
                     logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
                     self.broadcast_heartbeat()

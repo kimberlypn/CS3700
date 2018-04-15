@@ -83,7 +83,7 @@ class Server:
     
     def transition_to_state(self, state):
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
-                str(self.state), str(state))
+                str(self.state), str(state)))
         if state == State.LEADER:
             # Re-initialize any necessary fields
             self.state = State.LEADER

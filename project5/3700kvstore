@@ -114,6 +114,8 @@ class Server:
             self.state = State.FOLLOWER
             self.leader = msg['leader']
             self.current_term = msg['term']
+            self.votes = set()
+            self.voted_for = None
 
         elif state == State.CANDIDATE:
             self.state = State.CANDIDATE
@@ -208,21 +210,23 @@ class Server:
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
-        def reject():
+        def reject(hint=''):
+            logging.info('Rejecting request vote from ' msg['src'] + ' ' + hint)
             self.reply(msg, type='response_vote', value='false')
 
         if msg['term'] < self.current_term:
-            reject()
+            reject('Term {}<{}'.format(msg['src'], msg['term'], self.current_term))
         else:
             if self.msg_up_to_date(msg):
                 if self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
-                    logging.info('Term {} Voted for {}'.format(self.current_term, self.voted_for))
+                    logging.info('Term {} Voted for {}'.format(self.current_term,
+                            self.voted_for))
                     self.reply(msg, type='response_vote', value='true')
                 else:
-                    reject()
+                    reject('already voted this term')
             else:
-                reject()
+                reject('replica log out of date')
 
     @dispatch.add('response_vote')
     def handle_received_vote(self, msg):

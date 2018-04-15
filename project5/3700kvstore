@@ -93,6 +93,7 @@ class Server:
     def transition_to_state(self, state, msg=None, term=None):
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
                 str(self.state), str(state)))
+
         if state == State.LEADER:
             logging.info('Voted for by {}'.format(str(list(self.votes))))
             # Re-initialize any necessary fields
@@ -124,10 +125,9 @@ class Server:
             else:
                 self.current_term = term
             # Reset any votes from a previous election
-            self.votes = set()
+            self.votes = set((self.id,))
             # Vote for self
             self.voted_for = self.id
-            self.votes.add(self.id)
             
         else:
             #TODO define a proper exception
@@ -195,31 +195,43 @@ class Server:
             self.send(replica, **{
                 'type': 'request_vote',
                 # Index of candidate's last log entry
-                'last_log_idx': self.commit_idx,
+                'last_log_idx': self.last_log_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[self.commit_idx]['term']
+                'last_log_term': self.log[-1]['term']
             })
+
+    def msg_more_up_to_date(self, msg):
+        if self.log[-1]['term'] != msg['last_log_term']:
+            return self.log[-1]['term'] < msg['last_log_term']
+        else:
+            return self.last_log_idx < mgs['last_log_idx']
 
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
-        if self.current_term <= msg['term']:
-            if self.commit_idx <= msg['last_log_idx']:
-                if self.current_term < msg['term']:
-                    self.transition_to_state(State.CANDIDATE, term=msg['term'])
-                    self.voted_for = None
-                    self.votes -= set(self.id)
-                elif self.voted_for is None or self.voted_for == msg['src']:
+        def reject():
+            self.reply(msg, type='response_vote', value='false')
+
+        if msg['term'] < self.current_term:
+            reject()
+        else:
+            if self.msg_more_up_to_date(msg):
+                if self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
                     logging.info('Term {} Voted for {}'.format(self.current_term, self.voted_for))
-                    self.reply(msg, type='vote_granted')
+                    self.reply(msg, type='response_vote', value='true')
+                else:
+                    reject()
+            else:
+                reject()
 
-    @dispatch.add('vote_granted')
+    @dispatch.add('response_vote')
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
-        self.votes.add(msg['src'])
-        if len(self.votes) >= self.quorum:
-            self.transition_to_state(State.LEADER)
+        if msg['value'] == 'true':
+            self.votes.add(msg['src'])
+            if len(self.votes) >= self.quorum:
+                self.transition_to_state(State.LEADER)
 
     ##
     # AppendEntriesRPC
@@ -367,9 +379,11 @@ class Server:
                 self.apply(self.log[self.last_applied:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
-            msg = self.sock.recv(timeout=0.1)
+            msg = self.sock.recv(timeout=0.05)
             if msg:
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+                if self.current_term < msg['term']:
+                    self.transition_to_state(State.FOLLOWER)
                 self.dispatch(msg['type'], msg)
 
 

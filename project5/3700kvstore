@@ -386,6 +386,7 @@ class Server:
             if msg:
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                 if 'term' in msg and self.current_term < msg['term']:
+                    logging.info('Reverting to FOLLOWER, Term {}.{} from {}'.format(msg['term'], msg['type'], msg['src']))
                     self.transition_to_state(State.FOLLOWER, msg)
                 self.dispatch(msg['type'], msg)
 

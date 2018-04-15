@@ -223,7 +223,7 @@ class Server:
             self.transition_to_state(State.LEADER)
 
     def append_entry(self, entry):
-
+        pass
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -334,10 +334,9 @@ class Server:
     
             if self.sock.sock in ready:
                 msg = self.sock.recv()
-                # Else, handle the message
-                else:
-                    logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
-                    self.dispatch(msg['type'], msg)
+                
+                logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+                self.dispatch(msg['type'], msg)
 
 
 if __name__ == '__main__':

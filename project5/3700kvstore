@@ -81,7 +81,6 @@ class Server:
 
         self.state = None
         self.transition_to_state(State.CANDIDATE)
-        threading.Thread(target=self.heartbeat_thread).start()
 
     @property
     def last_log_idx(self):
@@ -181,17 +180,6 @@ class Server:
     def broadcast_heartbeat(self):
         for replica in self.replicas:
             self.send_append_entries(replica, prev_log_term=self.current_term)
-
-    def heartbeat_thread(self):
-        """Sends periodic heartbeats as the leader"""
-        time = current_time()
-        while True:
-            if self.state == State.LEADER:
-                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
-                    logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
-                    self.broadcast_heartbeat()
-                    # Reset the heartbeat timer
-                    self.prev_heartbeat = time
 
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
@@ -361,7 +349,15 @@ class Server:
 
     def run(self):
         """Runs the main loop"""
+        time = current_time()
         while True:
+            if self.state == State.LEADER:
+                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                    logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
+                    self.broadcast_heartbeat()
+                    # Reset the heartbeat timer
+                    self.prev_heartbeat = time
+
             if self.check_timeout():
                 # Election timeout met, so start election
                 self.transition_to_state(State.CANDIDATE)

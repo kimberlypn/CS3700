@@ -166,7 +166,7 @@ class Server:
         mymsg.update(**msg)
         mymsg['src'] = msg['dst']
         mymsg['dst'] = msg['src']
-        self.send(dst, **mymsg)
+        self.send(**mymsg)
 
     def send_redirect(self, msg):
         """Sends a redirect message back to the client"""

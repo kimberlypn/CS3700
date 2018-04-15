@@ -258,6 +258,7 @@ class Server:
             # Adhering to RAFT ensures that the leader will always have
             # the longest log, no worries about prev_log_idx being out
             # of bounds
+            logging.info('Sending AppendEntry(prev_idx, prev_term)')
             self.send_append_entries(replica, self.log[prev_log_idx:], 
                     self.log[prev_log_idx]['term'], prev_log_idx)    
 
@@ -279,8 +280,8 @@ class Server:
             logging.info('Recieved out-of-term message')
             self.send_fail(msg)
         else:
-            if prev_log_idx < self.last_log_idx:
-                logging.info('Prev log index less than max log index')
+            if prev_log_idx > self.last_log_idx:
+                logging.info('Prev log index greater than max log index')
                 self.send_fail(msg)
             elif self.log[prev_log_idx]['term'] != prev_log_term:
                 logging.info('prev term doesn\'t match {} {}'.format(self.log[prev_log_idx]['term'], prev_log_term))

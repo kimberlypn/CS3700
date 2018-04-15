@@ -280,7 +280,7 @@ class Server:
         else:
             self.transition_to_state(State.FOLLOWER, msg)
 
-            if prev_log_idx >= len(self.log):
+            if prev_log_idx < self.last_log_idx:
                 self.send_fail(msg)
             elif self.log[prev_log_idx]['term'] != prev_log_term:
                 self.send_fail(msg)

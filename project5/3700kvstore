@@ -407,7 +407,7 @@ if __name__ == '__main__':
 
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
-        logging.basicConfig(filename=args.id + '.log',
+        logging.basicConfig(filename=args.id + '.log', filemode='w',
                 level=level, format='%(asctime)s %(message)s')
 
 

@@ -267,7 +267,7 @@ class Server:
             if msg['type'] == 'ok':
                 self.next_idx[msg['src']] += 1
             elif msg['type'] == 'fail':
-                self.next_idx[msg['src']] -= 1
+                self.next_idx[msg['src']] = max(self.next_idx[msg['src']] - 1, 0)
                 self.try_append_entries(msg['src'])
             else:
                 raise 1

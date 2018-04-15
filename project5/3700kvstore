@@ -204,7 +204,7 @@ class Server:
         if self.log[-1]['term'] != msg['last_log_term']:
             return self.log[-1]['term'] < msg['last_log_term']
         else:
-            return self.last_log_idx < mgs['last_log_idx']
+            return self.last_log_idx < msg['last_log_idx']
 
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):

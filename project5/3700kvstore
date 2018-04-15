@@ -245,21 +245,21 @@ class Server:
 
         logging.info('Term {} Append Entries(Term: {})'.format(self.current_term,  msg['term']))
 
+        # If 'Leader' has a term equal to or greater than term, they
+        # had to be properly elected and must be safe to follow
         if msg['term'] < self.current_term:
             self.send_fail(msg)
-        elif not msg['entries']: #Heartbeat packet
-            self.send_ok(msg)
-        elif prev_log_idx >= len(self.log):
-            self.send_fail(msg)
-        elif self.log[prev_log_idx]['term'] != prev_log_term:
-            self.send_fail(msg)
         else:
-            if self.state == State.CANDIDATE:
-                self.transition_to_state(State.FOLLOWER, msg)
+            self.transition_to_state(State.FOLLOWER, msg)
 
-            self.log = self.log[:prev_log_idx + 1]
-            self.log.extend(msg['entries'])
-            self.send_ok(msg)
+            if prev_log_idx >= len(self.log):
+                self.send_fail(msg)
+            elif self.log[prev_log_idx]['term'] != prev_log_term:
+                self.send_fail(msg)
+            else:
+                self.log = self.log[:prev_log_idx + 1]
+                self.log.extend(msg['entries'])
+                self.send_ok(msg)
 
     @dispatch.add('ok')
     @dispatch.add('fail')

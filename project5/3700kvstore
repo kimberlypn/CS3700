@@ -73,7 +73,7 @@ class Server:
         self.match_idx = {} # index of highest log entry known on each server
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
-        # Start heartbeat thread
+        self.state = None
         self.transition_to_state(State.CANDIDATE)
         threading.Thread(target=self.heartbeat_thread).start()
 
@@ -266,7 +266,7 @@ class Server:
                 self.next_idx[msg['src']] += 1
             elif msg['type'] == 'fail':
                 self.next_idx[msg['src']] -= 1
-                self.try_append_entrys(msg['src'])
+                self.try_append_entries(msg['src'])
             else:
                 raise 1
 

@@ -15,7 +15,7 @@ import myutils
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768 # maximum bytes to read in from the socket
-HEARTBEAT_FREQ = 0.5 # seconds, or 500 milliseconds
+HEARTBEAT_FREQ = 0.1 # seconds, or 500 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 

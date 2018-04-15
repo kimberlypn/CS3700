@@ -203,7 +203,7 @@ class Server:
                 if self.current_term < msg['term']:
                     self.current_term = msg['term']
                     self.voted_for = None
-                    self.votes -= self.id
+                    self.votes.remove(self.id)
                 elif self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
                     self.reply(msg, type='vote_granted')

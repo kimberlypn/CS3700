@@ -16,7 +16,7 @@ import myutils
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768 # maximum bytes to read in from the socket
-HEARTBEAT_FREQ = 0.05 # seconds, or 500 milliseconds
+HEARTBEAT_FREQ = 0.1 # seconds, or 500 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
@@ -310,7 +310,7 @@ class Server:
                 if self.commit_idx < second_highest_idx:
                     logging.info('Committing entry {}'.format(self.commit_idx))
                     self.commit_idx = second_highest_idx
-                    entry = self.log[self.commit_idx] 
+                    entry = self.log[self.commit_idx]
                     self.send_ok(entry['msg'])
 
             elif msg['type'] == 'fail':

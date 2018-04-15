@@ -200,11 +200,11 @@ class Server:
                 'last_log_term': self.log[-1]['term']
             })
 
-    def msg_more_up_to_date(self, msg):
+    def msg_up_to_date(self, msg):
         if self.log[-1]['term'] != msg['last_log_term']:
-            return self.log[-1]['term'] < msg['last_log_term']
+            return self.log[-1]['term'] <= msg['last_log_term']
         else:
-            return self.last_log_idx < msg['last_log_idx']
+            return self.last_log_idx <= msg['last_log_idx']
 
     @dispatch.add('request_vote')
     def handle_request_vote(self, msg):
@@ -215,7 +215,7 @@ class Server:
         if msg['term'] < self.current_term:
             reject()
         else:
-            if self.msg_more_up_to_date(msg):
+            if self.msg_up_to_date(msg):
                 if self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
                     logging.info('Term {} Voted for {}'.format(self.current_term, self.voted_for))

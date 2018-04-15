@@ -210,7 +210,7 @@ class Server:
                 # Index of candidate's last log entry
                 'last_log_idx': self.commit_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[self.comitted_idx]['term']
+                'last_log_term': self.log[self.commit_idx]['term']
             })
 
     @dispatch.add('request_vote')

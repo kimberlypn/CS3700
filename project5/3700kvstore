@@ -253,7 +253,7 @@ class Server:
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
         for replica in self.replicas:
-            try_append_entries(replica)
+            self.try_append_entries(replica)
         
     @dispatch.add('append_entries')
     def handle_append_entries(self, msg):

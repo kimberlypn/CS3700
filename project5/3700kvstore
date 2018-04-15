@@ -208,7 +208,7 @@ class Server:
             self.send(replica, **{
                 'type': 'request_vote',
                 # Index of candidate's last log entry
-                'last_log_idx': self.comitted_idx,
+                'last_log_idx': self.committed_idx,
                 # Term of candidate's last log entry
                 'last_log_term': self.log[self.comitted_idx]['term']
             })

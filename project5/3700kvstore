@@ -162,8 +162,8 @@ class Server:
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
-        mymsg = kwargs.copy()
-        mymsg.update(**msg)
+        mymsg = msg.copy()
+        mymsg.update(**kwargs)
         mymsg['src'] = msg['dst']
         mymsg['dst'] = msg['src']
         self.send(**mymsg)

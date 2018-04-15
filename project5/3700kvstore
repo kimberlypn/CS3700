@@ -271,6 +271,7 @@ class Server:
         prev_log_term = msg['prev_log_term']
 
         logging.info('Term {} Append Entries(Term: {})'.format(self.current_term,  msg['term']))
+        self.reset_timeouts()
 
         # If 'Leader' has a term equal to or greater than term, they
         # had to be properly elected and must be safe to follow

@@ -200,6 +200,7 @@ class Server:
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         if self.current_term <= msg['term']:
+            logging.info('Term {} got RV with Term {}'.format(self.current_term, msg['term']))
             if self.last_log_idx <= msg['last_log_idx']:
                 if self.current_term < msg['term']:
                     self.current_term = msg['term']
@@ -217,6 +218,12 @@ class Server:
         quorum = len(self.replicas)//2 + 1
         if len(self.votes) >= quorum:
             self.transition_to_state(State.LEADER)
+
+    def append_entry(self, entry):
+        self.datastore.append(entry)
+            self.broadcast_append_entries()
+
+        self.commit_idx += 1
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -236,7 +243,6 @@ class Server:
             # of bounds
             self.send_append_entries(replica, self.log[prev_log_idx:], 
                     self.log[prev_log_idx]['term'], prev_log_idx)    
-
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -302,14 +308,7 @@ class Server:
             'value': value,
             'term': self.current_term
         }
-        self.log.append(entry)
-        self.commit_idx = len(self.log)
-
-        # Commit to the state machine
-        # TODO: Wait for quorum
-        self.datastore[key] = value
-
-        # Reply to client
+        self.append_entry(entry)
         self.send_ok(msg)
 
     @dispatch.add('get')

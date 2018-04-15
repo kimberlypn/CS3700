@@ -352,7 +352,6 @@ class Server:
 
             msg = self.sock.recv(timeout=0.1)
             if msg:
-                self.messages.append(msg)
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                 self.dispatch(msg['type'], msg)
 

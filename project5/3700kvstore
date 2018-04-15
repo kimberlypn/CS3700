@@ -82,8 +82,8 @@ class Server:
         return len(self.log) - 1
     
     def transition_to_state(self, state):
+        logging.info('Term '+ str(self.current_term) + 'transitioning to ' + str(state))
         if state == State.LEADER:
-            logging.info('Transitioning to leader')
             # Re-initialize any necessary fields
             self.state = State.LEADER
             self.leader = self.id
@@ -100,14 +100,12 @@ class Server:
             self.broadcast_heartbeat()
             
         elif state == State.FOLLOWER:
-            logging.info('Transitioning to follower')
             self.state = State.FOLLOWER
             self.voted_for = None
             self.votes = []
             self.reset_timeouts()
 
         elif state == State.CANDIDATE:
-            logging.info('Transitioning to candidate')
             self.state = State.CANDIDATE
             self.leader = 'FFFF' # ID of the assumed leader
             self.reset_timeouts()

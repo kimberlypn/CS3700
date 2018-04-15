@@ -298,7 +298,8 @@ class Server:
     def handle_appened_entries_resp(self, msg):
         if self.state == State.LEADER:
             if msg['type'] == 'ok':
-                self.next_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries']) + 1
+                self.match_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
+                self.next_idx[msg['src']] = self.match_idx['src'] + 1
                 # given N replicas, N/2 + 1 form a quorum. If you sort the current
                 # index each is on, the N//2 + 1'th index (middle index) is the one
                 # which brings something into the majorty and commits it
@@ -306,11 +307,9 @@ class Server:
                 # From this replicas persective, the message was already ready to
                 # be comitted, so only need N//2 confirmations. Therfore the second
                 # highest index is the one to mark comitted
-                second_highest_idx = list(sorted(self.next_idx.values()))[-2] - 1
+                second_highest_idx = list(sorted(self.match_idx.values()))[-2]
                 if self.commit_idx < second_highest_idx:
-                    self.commit_idx += 1
-                    if self.commit_idx != second_highest_idx:
-                        raise 1
+                    self.commit_idx = second_highest_idx
                     entry = self.log[self.commit_idx] 
                     self.send_ok(entry['msg'])
 

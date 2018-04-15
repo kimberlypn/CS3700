@@ -91,7 +91,8 @@ class Server:
         return len(self.replicas)//2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
-        logging.info('Term {} {} -> {}'.format(str(self.current_term),
+        if self.state != state:
+            logging.info('Term {} {} -> {}'.format(str(self.current_term),
                 str(self.state), str(state)))
 
         if state == State.LEADER:
@@ -269,8 +270,6 @@ class Server:
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']
-
-        logging.info('Term {} Append Entries(Term: {})'.format(self.current_term,  msg['term']))
         self.reset_timeouts()
 
         # If 'Leader' has a term equal to or greater than term, they

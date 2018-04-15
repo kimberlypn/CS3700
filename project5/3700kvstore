@@ -272,7 +272,6 @@ class Server:
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']
-        self.reset_timeouts()
 
         # If 'Leader' has a term equal to or greater than term, they
         # had to be properly elected and must be safe to follow
@@ -280,6 +279,9 @@ class Server:
             logging.info('Recieved out-of-term message')
             self.send_fail(msg)
         else:
+            self.transition_to_state(State.FOLLOWER, msg)
+            self.reset_timeouts()
+
             if prev_log_idx > self.last_log_idx:
                 logging.info('Prev log index greater than max log index')
                 self.send_fail(msg)

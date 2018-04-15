@@ -276,13 +276,14 @@ class Server:
         # If 'Leader' has a term equal to or greater than term, they
         # had to be properly elected and must be safe to follow
         if msg['term'] < self.current_term:
+            logging.info('Recieved out-of-term message')
             self.send_fail(msg)
         else:
-            self.transition_to_state(State.FOLLOWER, msg)
-
             if prev_log_idx < self.last_log_idx:
+                logging.info('Prev log index less than max log index')
                 self.send_fail(msg)
             elif self.log[prev_log_idx]['term'] != prev_log_term:
+                logging.info('prev term doesn\'t match')
                 self.send_fail(msg)
             else:
                 self.log = self.log[:prev_log_idx + 1]

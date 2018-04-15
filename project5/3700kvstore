@@ -99,7 +99,6 @@ class Server:
             # Re-initialize any necessary fields
             self.state = State.LEADER
             self.leader = self.id
-            self.commit_idx = len(self.log)
             self.prev_heartbeat = current_time()
             for replica in self.replicas:
                 # For each server, index of next log entry to send to that server

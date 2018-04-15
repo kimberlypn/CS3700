@@ -283,7 +283,7 @@ class Server:
                 logging.info('Prev log index less than max log index')
                 self.send_fail(msg)
             elif self.log[prev_log_idx]['term'] != prev_log_term:
-                logging.info('prev term doesn\'t match')
+                logging.info('prev term doesn\'t match {} {}'.format(self.log[prev_log_idx]['term'], prev_log_term))
                 self.send_fail(msg)
             else:
                 self.log = self.log[:prev_log_idx + 1]

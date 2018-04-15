@@ -81,7 +81,7 @@ class Server:
     def last_log_idx(self):
         return len(self.log) - 1
     
-    def transition_to_state(self, state, msg=None):
+    def transition_to_state(self, state, msg=None, term=None):
         logging.info('Term {} {} -> {}'.format(str(self.current_term),
                 str(self.state), str(state)))
         if state == State.LEADER:
@@ -111,7 +111,10 @@ class Server:
             self.state = State.CANDIDATE
             self.leader = 'FFFF' # ID of the assumed leader
             self.reset_timeouts()
-            self.current_term += 1
+            if term is None:
+                self.current_term += 1
+            else:
+                self.current_term = term
             # Reset any votes from a previous election
             self.votes = set()
             # Vote for self
@@ -218,6 +221,9 @@ class Server:
         quorum = len(self.replicas)//2 + 1
         if len(self.votes) >= quorum:
             self.transition_to_state(State.LEADER)
+
+    def append_entry(self, entry):
+
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -328,10 +334,6 @@ class Server:
     
             if self.sock.sock in ready:
                 msg = self.sock.recv()
-
-                # Skip if there is no data
-                if not msg:
-                    continue
                 # Else, handle the message
                 else:
                     logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))

@@ -163,9 +163,9 @@ class Server:
         
     def reply(self, msg, **kwargs):
         mymsg = kwargs.copy()
-        dst = msg['src']
-        mymsg.update(src=msg['dst'], **msg)
-        del mymsg['dst']
+        mymsg.update(**msg)
+        mymsg['src'] = msg['dst']
+        mymsg['dst'] = msg['src']
         self.send(dst, **mymsg)
 
     def send_redirect(self, msg):

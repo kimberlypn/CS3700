@@ -372,8 +372,9 @@ class Server:
         time = current_time()
         while True:
             if self.state == State.LEADER:
-                logging.debug('is leader')
-                if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                span = time - self.prev_heartbeat
+                logging.debug('is leader {} >= {}'.format(span, HEARTBEAT_FREQ))
+                if span >= HEARTBEAT_FREQ:
                     logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
                     self.broadcast_heartbeat()
                     # Reset the heartbeat timer

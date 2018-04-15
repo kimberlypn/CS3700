@@ -350,13 +350,11 @@ class Server:
                 self.transition_to_state(State.CANDIDATE)
                 self.send_request_vote()
 
-            if self.messages:
+            msg = self.sock.recv(timeout=0.1)
+            if msg:
+                self.messages.append(msg)
                 logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                 self.dispatch(msg['type'], msg)
-            else:
-                msg = self.sock.recv(timeout=0.1)
-                if msg:
-                    self.messages.append(msg)
 
 
 if __name__ == '__main__':

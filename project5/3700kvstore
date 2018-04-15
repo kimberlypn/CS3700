@@ -199,8 +199,11 @@ class Server:
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         if self.current_term <= msg['term']:
-            if self.voted_for is None or self.voted_for == msg['src']:
-                if self.last_log_idx <= msg['last_log_idx']:
+            if self.last_log_idx <= msg['last_log_idx']:
+                if self.current_term < msg['term']:
+                    self.current_term = msg['term']
+                    self.voted_for = None
+                elif self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
                     self.reply(msg, type='vote_granted')
 

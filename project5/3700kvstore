@@ -389,6 +389,7 @@ class Server:
                 if 'term' in msg and self.current_term < msg['term']:
                     logging.info('Reverting to FOLLOWER, Term {}.{} from {}'.format(msg['term'], msg['type'], msg['src']))
                     self.transition_to_state(State.FOLLOWER, msg)
+                    self.reset_timeouts()
                 self.dispatch(msg['type'], msg)
 
 

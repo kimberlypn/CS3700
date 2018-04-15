@@ -371,7 +371,6 @@ class Server:
         """Runs the main loop"""
         time = current_time()
         while True:
-            logging.debug('looped')
             if self.state == State.LEADER:
                 logging.debug('is leader')
                 if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:

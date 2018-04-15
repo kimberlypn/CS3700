@@ -168,6 +168,7 @@ class Server:
     def broadcast_heartbeat(self):
         for replica in self.replicas:
             self.send_append_entries(replica, prev_log_term=self.current_term)
+
     def heartbeat_thread(self):
         """Sends periodic heartbeats as the leader"""
         time = current_time()
@@ -241,6 +242,8 @@ class Server:
         """Handles an AppendEntries RPC from a leader"""
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']
+
+        logging.info('Term {} Append Entries(Term: {})', self.current_term,  msg['term'])
 
         if msg['term'] < self.current_term:
             self.send_fail(msg)

@@ -176,6 +176,7 @@ class Server:
         while True:
             if self.state == State.LEADER:
                 if (time - self.prev_heartbeat) >= HEARTBEAT_FREQ:
+                    logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
                     self.broadcast_heartbeat()
                     # Reset the heartbeat timer
                     self.prev_heartbeat = time

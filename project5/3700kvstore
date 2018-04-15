@@ -16,7 +16,7 @@ import myutils
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768 # maximum bytes to read in from the socket
-HEARTBEAT_FREQ = 0.1 # seconds, or 500 milliseconds
+HEARTBEAT_FREQ = 0.1 # seconds, or 100 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
@@ -81,7 +81,8 @@ class Server:
         self.prev_heartbeat = current_time() # timestamp of previous heartbeat
 
         self.state = None
-        self.transition_to_state(State.CANDIDATE)
+        self.leader = 'FFFF'
+        self.transition_to_state(State.FOLLOWER)
 
     @property
     def last_log_idx(self):
@@ -114,8 +115,9 @@ class Server:
             
         elif state == State.FOLLOWER:
             self.state = State.FOLLOWER
-            self.leader = msg['leader']
-            self.current_term = msg['term']
+            if msg:
+                self.leader = msg['leader']
+                self.current_term = msg['term']
             self.votes = set()
             self.voted_for = None
 

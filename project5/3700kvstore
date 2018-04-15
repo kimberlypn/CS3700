@@ -102,8 +102,6 @@ class Server:
             
         elif state == State.FOLLOWER:
             self.state = State.FOLLOWER
-            self.voted_for = None
-            self.votes = []
             self.leader = msg['leader']
             self.reset_timeouts()
 

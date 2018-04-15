@@ -220,14 +220,20 @@ class Server:
             'leader_commit': self.commit_idx
         })
 
+    def try_append_entries(self, replica):
+            prev_log_idx = self.next_idx[replica] - 1
+            # Adhering to RAFT ensures that the leader will always have
+            # the longest log, no worries about prev_log_idx being out
+            # of bounds
+            self.send_append_entries(replica, self.log[prev_log_idx:], 
+                    self.log[prev_log_idx]['term'], prev_log_idx)    
+
+
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
         for replica in self.replicas:
+            try_append_entries(replica)
             prev_log_idx = self.next_idx[replica] - 1
-            # Adhering to RAFT ensures that the leader will always have
-            # the longest log
-            self.send_append_entries(replica, self.log[prev_log_idx:], 
-                    self.log[prev_log_idx]['term'], prev_log_idx)    
         
     @dispatch.add('append_entries')
     def handle_append_entries(self, msg):
@@ -250,6 +256,18 @@ class Server:
             self.log = self.log[:prev_log_idx + 1]
             self.log.extend(msg['entries'])
             self.send_ok(msg)
+
+    @dispatch.add('ok')
+    @dispatch.add('fail')
+    def handle_appened_entries_resp(self, msg):
+        if self.state == State.LEADER:
+            if msg['type'] == 'ok':
+                self.next_idx[msg['src']] += 1
+            elif msg['type'] == 'fail':
+                self.next_idx[msg['src']] -= 1
+                self.try_append_entrys(msg['src'])
+            else:
+                raise 1
 
     @dispatch.add('put')
     def handle_put(self, msg):

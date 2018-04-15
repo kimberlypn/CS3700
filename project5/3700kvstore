@@ -145,7 +145,7 @@ class Server:
 
     def reset_timeouts(self):
         """Resets the election and leader timeouts"""
-        self.election_timeout = random.uniform(2.8, 3)#0.15, 0.3)
+        self.election_timeout = random.uniform(0.15, 0.3)
         self.prev_timeout = current_time()
 
     def send(self, dst, **kwargs):

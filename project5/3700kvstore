@@ -96,7 +96,7 @@ class LoggingMixin:
             # Kinda a NOP, but should allow for nested log surpression
             self.previous_log = getattr(self.instance, '_logging_log', None)
             self.instance._logging_log = []
-            return BypassProxy(self.instance)
+            return LoggingMixin.BypassProxy(self.instance)
 
         def __exit__(self):
             for e in self.instance._logging_log:

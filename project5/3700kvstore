@@ -66,7 +66,7 @@ class LoggingMixin:
 
     def _logfunc_or_enque(self, logfunc, string):
         msg = self._logfmt(string)
-        log =  getattr(self, _logging_log, None)
+        log =  getattr(self, '_logging_log', None)
         if log is not None:
             log.append(logfunc, msg)
         else:

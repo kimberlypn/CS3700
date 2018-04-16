@@ -414,7 +414,7 @@ if __name__ == '__main__':
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
         logging.basicConfig(filename=args.id + '.log', filemode='w',
-                level=level, format='%(asctime)s %(message)s')
+                level=level, format='%(name)s %(asctime)s.%(msecs)s : %(message)s', datefmt='%M:%S')
 
 
     # Initialize the datastore with the arguments passed

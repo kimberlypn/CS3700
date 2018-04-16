@@ -144,11 +144,12 @@ class Server(LoggingMixin):
     
     def transition_to_state(self, state, msg=None, term=None):
         prev_state = self.state
+        prev_term = self.term
         with self.accumulate_logs() as bypass_log:
             if state == State.LEADER:
                 logging.info('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
-                self.state = State.LEADER
+                next_state = State.LEADER
                 self.leader = self.id
                 self.prev_heartbeat = current_time()
                 for replica in self.replicas:
@@ -186,8 +187,8 @@ class Server(LoggingMixin):
                 #TODO define a proper exception
                 raise 1
 
-            if self.state != prev_state:
-                bypass_log.info('->{}::{}'.format(self.state, self.current_term))
+            if self.state != prev_state or self.current_term != prev_term:
+                bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
 
 
     def check_timeout(self):

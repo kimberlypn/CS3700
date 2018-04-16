@@ -88,20 +88,23 @@ class LoggingMixin:
         def debug(self, string):
             logging.debug(instance._logfmt(string))
 
-    class AccumulateLogs:
+    class Accumulator:
         def __init__(self, instance):
             self.instance = instance
+
+        def __enter__(self):
             # Kinda a NOP, but should allow for nested log surpression
             self.previous_log = getattr(self.instance, '_logging_log', None)
             self.instance._logging_log = []
-
-        def __enter__(self):
             return BypassProxy(self.instance)
 
         def __exit__(self):
             for e in self.instance._logging_log:
                 e.logfunc(e.string)
             self.instance._logging_log = self.previous_log
+
+    def accumulate_logs(self):
+        return LoggingMixin.Accumulator(self)
 
 
 class Server(LoggingMixin):
@@ -140,49 +143,51 @@ class Server(LoggingMixin):
         return len(self.replicas)//2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
-        if self.state != state:
-            self.info('-> {}'.format(str(state)))
-
-        if state == State.LEADER:
-            logging.info('Voted for by {}'.format(str(list(self.votes))))
-            # Re-initialize any necessary fields
-            self.state = State.LEADER
-            self.leader = self.id
-            self.prev_heartbeat = current_time()
-            for replica in self.replicas:
-                # For each server, index of next log entry to send to that server
-                # (initialized to leader last log index + 1)
-                self.next_idx[replica] = self.commit_idx + 1
-                # For each server, index of highest log entry known to be 
-                # replicated on server (initialized to 0, increases monotonically)
-                self.match_idx[replica] = 0
-
-            self.broadcast_heartbeat()
-            
-        elif state == State.FOLLOWER:
-            self.state = State.FOLLOWER
-            if msg:
-                self.leader = msg['leader']
-                self.current_term = msg['term']
-            self.votes = set()
-            self.voted_for = None
-
-        elif state == State.CANDIDATE:
-            self.state = State.CANDIDATE
-            self.leader = 'FFFF' # ID of the assumed leader
-            self.reset_timeouts()
-            if term is None:
-                self.current_term += 1
+        with self.accumulate_logs() as bypass_log:
+            if state == State.LEADER:
+                logging.info('Voted for by {}'.format(str(list(self.votes))))
+                # Re-initialize any necessary fields
+                self.state = State.LEADER
+                self.leader = self.id
+                self.prev_heartbeat = current_time()
+                for replica in self.replicas:
+                    # For each server, index of next log entry to send to that server
+                    # (initialized to leader last log index + 1)
+                    self.next_idx[replica] = self.commit_idx + 1
+                    # For each server, index of highest log entry known to be 
+                    # replicated on server (initialized to 0, increases monotonically)
+                    self.match_idx[replica] = 0
+    
+                self.broadcast_heartbeat()
+                
+            elif state == State.FOLLOWER:
+                self.state = State.FOLLOWER
+                if msg:
+                    self.leader = msg['leader']
+                    self.current_term = msg['term']
+                self.votes = set()
+                self.voted_for = None
+    
+            elif state == State.CANDIDATE:
+                self.state = State.CANDIDATE
+                self.leader = 'FFFF' # ID of the assumed leader
+                self.reset_timeouts()
+                if term is None:
+                    self.current_term += 1
+                else:
+                    self.current_term = term
+                # Reset any votes from a previous election
+                self.votes = set((self.id,))
+                # Vote for self
+                self.voted_for = self.id
+                
             else:
-                self.current_term = term
-            # Reset any votes from a previous election
-            self.votes = set((self.id,))
-            # Vote for self
-            self.voted_for = self.id
-            
-        else:
-            #TODO define a proper exception
-            raise 1
+                #TODO define a proper exception
+                raise 1
+
+            if self.state != state:
+                bypass_log.info('->{}::{}'.format(self.state, self.current_term))
+
 
     def check_timeout(self):
         """Determines if an election needs to take place"""

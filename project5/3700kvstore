@@ -98,7 +98,7 @@ class LoggingMixin:
             self.instance._logging_log = []
             return LoggingMixin.BypassProxy(self.instance)
 
-        def __exit__(self):
+        def __exit__(self, *args):
             for e in self.instance._logging_log:
                 e.logfunc(e.string)
             self.instance._logging_log = self.previous_log

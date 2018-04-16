@@ -143,7 +143,7 @@ class Server(LoggingMixin):
         return len(self.replicas)//2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
-        prev_state = self.state:
+        prev_state = self.state
         with self.accumulate_logs() as bypass_log:
             if state == State.LEADER:
                 logging.info('Voted for by {}'.format(str(list(self.votes))))

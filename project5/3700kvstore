@@ -73,10 +73,10 @@ class LoggingMixin:
             logfunc(msg)
 
     def info(self, string):
-        self._logfunc_or_enque(logging.info, self._logfmt(string))
+        self._logfunc_or_enque(logging.info, string)
 
     def debug(self, string):
-        self._logfunc_or_enque(logging.debug, self._fmt(string))
+        self._logfunc_or_enque(logging.debug, string)
     
     class BypassProxy:
         def __init__(self, instance):

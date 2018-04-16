@@ -83,10 +83,10 @@ class LoggingMixin:
             self.instance = instance
 
         def info(self, string):
-            logging.info(instance._logfmt(string))
+            logging.info(self.instance._logfmt(string))
 
         def debug(self, string):
-            logging.debug(instance._logfmt(string))
+            logging.debug(self.instance._logfmt(string))
 
     class Accumulator:
         def __init__(self, instance):

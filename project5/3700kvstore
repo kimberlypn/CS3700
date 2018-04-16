@@ -1,5 +1,6 @@
 #!/usr/bin/python3 -u
 import argparse
+import collections
 import enum
 import json
 import logging
@@ -57,7 +58,53 @@ class SimulatorSocket:
         self.sock.send(msg)
 
 
-class Server:
+class LoggingMixin:
+    LogEntry = collections.namedtuple('LogEntry', 'logfunc string')
+
+    def _logfmt(self, string):
+        return '{}::{} {}'.format(self.state, self.current_term, string)
+
+    def _logfunc_or_enque(self, logfunc, string):
+        msg = self._logfmt(string)
+        log =  getattr(self, _logging_log, None)
+        if log is not None:
+            log.append(logfunc, msg)
+        else:
+            logfunc(msg)
+
+    def info(self, string):
+        self._logfunc_or_enque(logging.info, self._logfmt(string))
+
+    def debug(self, string):
+        self._logfunc_or_enque(logging.debug, self._fmt(string))
+    
+    class BypassProxy:
+        def __init__(self, instance):
+            self.instance = instance
+
+        def info(self, string):
+            logging.info(instance._logfmt(string))
+
+        def debug(self, string):
+            logging.debug(instance._logfmt(string))
+
+    class AccumulateLogs:
+        def __init__(self, instance):
+            self.instance = instance
+            # Kinda a NOP, but should allow for nested log surpression
+            self.previous_log = getattr(self.instance, '_logging_log', None)
+            self.instance._logging_log = []
+
+        def __enter__(self):
+            return BypassProxy(self.instance)
+
+        def __exit__(self):
+            for e in self.instance._logging_log:
+                e.logfunc(e.string)
+            self.instance._logging_log = self.previous_log
+
+
+class Server(LoggingMixin):
     def __init__(self, id_, replicas):
         self.id = id_
         self.replicas = replicas 
@@ -94,8 +141,8 @@ class Server:
     
     def transition_to_state(self, state, msg=None, term=None):
         if self.state != state:
-            logging.info('Term {} {} -> {}'.format(str(self.current_term),
-                str(self.state), str(state)))
+            self.info('-> {}'.format(str(self.current_term),
+                str(self.state) str(state)))
 
         if state == State.LEADER:
             logging.info('Voted for by {}'.format(str(list(self.votes))))
@@ -151,6 +198,7 @@ class Server:
         """Resets the election and leader timeouts"""
         self.election_timeout = random.uniform(0.15, 0.3)
         self.prev_timeout = current_time()
+
 
     def send(self, dst, **kwargs):
         msg = kwargs.copy()
@@ -414,7 +462,8 @@ if __name__ == '__main__':
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
         logging.basicConfig(filename=args.id + '.log', filemode='w',
-                level=level, format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s', datefmt='%M:%S')
+                level=level, datefmt='%M:%S',
+                format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
 
 
     # Initialize the datastore with the arguments passed

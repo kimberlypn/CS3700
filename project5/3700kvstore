@@ -147,7 +147,7 @@ class Server(LoggingMixin):
         prev_term = self.current_term
         with self.accumulate_logs() as bypass_log:
             if state == State.LEADER:
-                self.info('Voted for by {}'.format(str(list(self.votes))))
+                self.debug('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
                 self.state = State.LEADER
                 self.leader = self.id
@@ -314,7 +314,8 @@ class Server(LoggingMixin):
             # Adhering to RAFT ensures that the leader will always have
             # the longest log, no worries about prev_log_idx being out
             # of bounds
-            self.info('Sending AppendEntry(prev_idx, prev_term)')
+            self.debug('Sending {}.AppendEntries[{}:{}]'.format(replica,
+                    self.next_idx[replica], len(self.log)))
             self.send_append_entries(replica, self.log[self.next_idx[replica]:], 
                     self.log[self.match_idx[replica]]['term'], self.match_idx[replica])    
 

@@ -149,7 +149,7 @@ class Server(LoggingMixin):
             if state == State.LEADER:
                 logging.info('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
-                next_state = State.LEADER
+                self.state = State.LEADER
                 self.leader = self.id
                 self.prev_heartbeat = current_time()
                 for replica in self.replicas:

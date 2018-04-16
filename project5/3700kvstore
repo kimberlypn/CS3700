@@ -68,7 +68,7 @@ class LoggingMixin:
         msg = self._logfmt(string)
         log =  getattr(self, '_logging_log', None)
         if log is not None:
-            log.append(logfunc, msg)
+            log.append(LoggingMixin.LogEntry(logfunc, msg))
         else:
             logfunc(msg)
 

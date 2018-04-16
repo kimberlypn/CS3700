@@ -141,8 +141,7 @@ class Server(LoggingMixin):
     
     def transition_to_state(self, state, msg=None, term=None):
         if self.state != state:
-            self.info('-> {}'.format(str(self.current_term),
-                str(self.state) str(state)))
+            self.info('-> {}'.format(str(state)))
 
         if state == State.LEADER:
             logging.info('Voted for by {}'.format(str(list(self.votes))))

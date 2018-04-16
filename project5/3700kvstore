@@ -269,7 +269,7 @@ class Server(LoggingMixin):
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         def reject(hint=''):
-            logging.info('Rejecting request vote from {} {} '.format(msg['src'], hint))
+            self.info('Rejecting {}.request_vote ({})'.format(msg['src'], hint))
             self.reply(msg, type='response_vote', value='false')
 
         if msg['term'] < self.current_term:

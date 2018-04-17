@@ -164,11 +164,12 @@ class Server(LoggingMixin):
                 self.broadcast_heartbeat()
                 
             elif state == State.FOLLOWER:
-                if msg:
+                if self.failed:
                     bypass_log.info('Failed {}'.format(self.failed))
+                self.state = State.FOLLOWER
+                if msg:
                     self.leader = msg['leader']
                     self.current_term = msg['term']
-                self.state = State.FOLLOWER
                 self.votes = set()
                 self.failed = set()
                 self.voted_for = None

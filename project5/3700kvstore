@@ -350,11 +350,11 @@ class Server(LoggingMixin):
                 reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
                         prev_log_term))
             else:
-                if msg['entries']:
-                    self.log = self.log[:prev_log_idx + 1]
-                    self.log.extend(msg['entries'])
-                    self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
-                    self.send_ok(msg)
+                self.log = self.log[:prev_log_idx + 1]
+                self.info('Appending {} entries'.format(msg['entries']))
+                self.log.extend(msg['entries'])
+                self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
+                self.send_ok(msg)
 
     @dispatch.add('ok')
     @dispatch.add('fail')

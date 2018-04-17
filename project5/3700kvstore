@@ -317,9 +317,10 @@ class Server(LoggingMixin):
             # Adhering to RAFT ensures that the leader will always have
             # the longest log, no worries about prev_log_idx being out
             # of bounds
-            prev_idx = self.match_idx[replica]
+            prev_idx = self.next_idx[replica] - 1 #Tempting to use match_idx
+                                                  #but that's initialized to 0
             prev_term = self.log[prev_idx]['term']
-            entries = self.log[self.next_idx[replica]:]
+            entries = self.log[prev_idx + 1:]
 
             self.info('Sending {}.AppendEntries[{}:{}]'.format(replica,
                     self.next_idx[replica], len(self.log)))
@@ -387,7 +388,6 @@ class Server(LoggingMixin):
                     self.send_ok(entry['msg'])
 
             elif msg['type'] == 'fail':
-                self.match_idx[msg['src']] -= 1
                 self.next_idx[msg['src']] -= 1
 
                 self.info('Decremeting {}.next_idx {}'.format(msg['src'],

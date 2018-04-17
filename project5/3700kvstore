@@ -361,7 +361,7 @@ class Server(LoggingMixin):
                         self.info('Deleting entries [{}:]'.format(last))
                         del self.log[last:]
                     self.info('Appending {} entries ({})'.format(len(msg['entries']),
-                            [e['msg']['MID'] for e in msg['entries']]))
+                            [e['MID'] for e in msg['entries']]))
                     self.log.extend(msg['entries'])
                 self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
                 self.send_ok(msg)

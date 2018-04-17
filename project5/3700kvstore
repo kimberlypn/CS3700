@@ -314,10 +314,13 @@ class Server(LoggingMixin):
             # Adhering to RAFT ensures that the leader will always have
             # the longest log, no worries about prev_log_idx being out
             # of bounds
-            self.debug('Sending {}.AppendEntries[{}:{}]'.format(replica,
+            prev_idx = self.match_idx[replica]
+            prev_term = self.log[prev_log_idx]['term']
+            entries = self.log[self.next_idx[replica]:]
+
+            self.info('Sending {}.AppendEntries[{}:{}]'.format(replica,
                     self.next_idx[replica], len(self.log)))
-            self.send_append_entries(replica, self.log[self.next_idx[replica]:], 
-                    self.log[self.match_idx[replica]]['term'], self.match_idx[replica])    
+            self.send_append_entries(replica, entries, prev_term, prev_idx) 
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -376,7 +379,8 @@ class Server(LoggingMixin):
                 self.match_idx[msg['src']] -= 1
                 self.next_idx[msg['src']] -= 1
 
-                self.info('Term {} Decremeting Replica {} next_idx {}'.format(self.current_term, msg['src'], self.next_idx[msg['src']]))
+                self.info('Decremeting {}.next_idx {}'.format(msg['src'],
+                        self.next_idx[msg['src']]))
                 self.try_append_entries(msg['src'])
             else:
                 raise 1

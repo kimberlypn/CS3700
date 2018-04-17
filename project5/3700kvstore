@@ -236,14 +236,13 @@ class Server(LoggingMixin):
         """Sends a fail message back to the client"""
         self.reply(msg, type='fail')
 
-    def broadcast_heartbeat(self):
-        for replica in self.replicas:
-            self.send_append_entries(replica, prev_log_idx =self.last_log_idx, prev_log_term=self.log[-1]['term'])
-
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
         pass
 
+    def broadcast_heartbeat(self):
+        for replica in self.replicas:
+            self.send_append_entries(replica, prev_log_idx=self.last_log_idx, prev_log_term=self.log[-1]['term'])
     ##
     # RequestVotesRPC
     ##
@@ -351,10 +350,11 @@ class Server(LoggingMixin):
                 reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
                         prev_log_term))
             else:
-                self.log = self.log[:prev_log_idx + 1]
-                self.log.extend(msg['entries'])
-                self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
-                self.send_ok(msg)
+                if msg['entries']:
+                    self.log = self.log[:prev_log_idx + 1]
+                    self.log.extend(msg['entries'])
+                    self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
+                    self.send_ok(msg)
 
     @dispatch.add('ok')
     @dispatch.add('fail')

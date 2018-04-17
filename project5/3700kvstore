@@ -315,7 +315,7 @@ class Server(LoggingMixin):
             # the longest log, no worries about prev_log_idx being out
             # of bounds
             prev_idx = self.match_idx[replica]
-            prev_term = self.log[prev_log_idx]['term']
+            prev_term = self.log[prev_idx]['term']
             entries = self.log[self.next_idx[replica]:]
 
             self.info('Sending {}.AppendEntries[{}:{}]'.format(replica,

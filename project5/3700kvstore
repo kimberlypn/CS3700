@@ -445,7 +445,8 @@ class Server(LoggingMixin):
                 self.send_request_vote()
 
             if self.commit_idx > self.last_applied:
-                self.apply(self.log[self.last_applied:self.commit_idx + 1])
+                self.info('Applying [{}, {}]'.format(self.last_applied + 1, self.commit_idx))
+                self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)

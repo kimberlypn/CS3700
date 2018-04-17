@@ -132,6 +132,7 @@ class Server(LoggingMixin):
 
         self.state = None
         self.leader = 'FFFF'
+        self.failed = set() #Just for logging
         self.transition_to_state(State.FOLLOWER)
 
     @property
@@ -163,11 +164,13 @@ class Server(LoggingMixin):
                 self.broadcast_heartbeat()
                 
             elif state == State.FOLLOWER:
-                self.state = State.FOLLOWER
                 if msg:
+                    bypass_log.info('Failed {}'.format(self.failed))
                     self.leader = msg['leader']
                     self.current_term = msg['term']
+                self.state = State.FOLLOWER
                 self.votes = set()
+                self.failed = set()
                 self.voted_for = None
     
             elif state == State.CANDIDATE:
@@ -400,7 +403,7 @@ class Server(LoggingMixin):
         if self.state != State.LEADER:
             # Send fail if leader unknown
             if self.leader == 'FFFF':
-                self.info('{}.put Failed unknown leader'.format(msg['src']))
+                self.failed.add('{}.put'.format(msg['src']))
                 self.send_fail(msg)
             # Else, redirect to the leader
             else:
@@ -429,6 +432,7 @@ class Server(LoggingMixin):
             # Respond with the value if it exists
             self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
         elif self.leader == 'FFFF':
+            self.failed.add('{}.get'.format(msg['src']))
             self.send_fail(msg)
         else:
             self.send_redirect(msg)

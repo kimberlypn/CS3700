@@ -459,6 +459,8 @@ class Server(LoggingMixin):
                 else:
                     self.info('Applying {}'.format(self.commit_idx))
                 self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
+                if len(self.log) != self.commit_idx + 1:
+                    raise 2
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)

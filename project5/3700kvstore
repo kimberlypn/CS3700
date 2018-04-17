@@ -333,21 +333,23 @@ class Server(LoggingMixin):
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']
 
+        def reject(string):
+            self.info('Failing {}.append_entries ({})'.format(msg['src'], string))
+            self.send_fail(msg)
+
         # If 'Leader' has a term equal to or greater than term, they
         # had to be properly elected and must be safe to follow
         if msg['term'] < self.current_term:
-            self.info('Recieved out-of-term message')
-            self.send_fail(msg)
+            reject('term {}<{}'.format(self.current_term, msg['term']))
         else:
             self.transition_to_state(State.FOLLOWER, msg)
             self.reset_timeouts()
 
             if prev_log_idx > self.last_log_idx:
-                self.info('Prev log index greater than max log index')
-                self.send_fail(msg)
+                reject('index {}>{}'.format(prev_log_idx, self.last_log_idx))
             elif self.log[prev_log_idx]['term'] != prev_log_term:
-                self.info('prev term doesn\'t match {} {}'.format(self.log[prev_log_idx]['term'], prev_log_term))
-                self.send_fail(msg)
+                reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
+                        prev_log_term))
             else:
                 self.log = self.log[:prev_log_idx + 1]
                 self.log.extend(msg['entries'])

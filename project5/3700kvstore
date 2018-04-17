@@ -385,7 +385,7 @@ class Server(LoggingMixin):
                     self.info('Committing entry {}'.format(self.commit_idx))
                     self.commit_idx = committed_idx
                     entry = self.log[self.commit_idx]
-                    self.send_ok({src=entry['src'], MID=entry['MID']})
+                    self.send_ok({'src': entry['src'], 'MID': entry['MID']})
 
             elif msg['type'] == 'fail':
                 self.next_idx[msg['src']] -= 1

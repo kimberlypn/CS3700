@@ -354,7 +354,7 @@ class Server(LoggingMixin):
                 reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
                         prev_log_term))
             else:
-                if self.last_log_idx < prev_log_idx:
+                if msg['entries']:
                     last = prev_log_idx + 1
                     if last <= self.last_log_idx:
                         self.info('Deleting entries [{}:]'.format(last))

@@ -440,6 +440,7 @@ class Server(LoggingMixin):
             self.failed.add('{}.get'.format(msg['src']))
             self.send_fail(msg)
         else:
+            self.info('{}.get redirected to {}'.format(msg['src'], self.leader))
             self.send_redirect(msg)
 
     def apply(self, entries):

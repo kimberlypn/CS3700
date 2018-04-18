@@ -321,6 +321,7 @@ class Server(LoggingMixin):
                                                   #but that's initialized to 0
             prev_term = self.log[prev_idx]['term']
             entries = self.log[prev_idx + 1:]
+            entries = entries[:100]
 
             self.info('Sending {}.AppendEntries[{}:{}]'.format(replica,
                     self.next_idx[replica], len(self.log)))

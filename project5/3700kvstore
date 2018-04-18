@@ -394,7 +394,7 @@ class Server(LoggingMixin):
                 reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
                         prev_log_term))
             else:
-               if msg['entries']:
+                if msg['entries']:
                     last = prev_log_idx + 1
                     # If an existing entry conflicts with a new one (same index
                     # but different terms), delete the existing entry and all

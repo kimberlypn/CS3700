@@ -497,6 +497,8 @@ class Server(LoggingMixin):
             if e['command'] == 'put':
                 self.datastore[e['key']] = e['value']
 
+    # ------------------------ END OF CLIENT INTERFACE ------------------------
+
     def run(self):
         """Runs the main loop"""
         while True:

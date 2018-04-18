@@ -1,5 +1,6 @@
 #!/usr/bin/python3 -u
 import argparse
+import collections
 import enum
 import json
 import logging
@@ -57,7 +58,56 @@ class SimulatorSocket:
         self.sock.send(msg)
 
 
-class Server:
+class LoggingMixin:
+    LogEntry = collections.namedtuple('LogEntry', 'logfunc string')
+
+    def _logfmt(self, string):
+        return '{}::{} {}'.format(self.state, self.current_term, string)
+
+    def _logfunc_or_enque(self, logfunc, string):
+        msg = self._logfmt(string)
+        log =  getattr(self, '_logging_log', None)
+        if log is not None:
+            log.append(LoggingMixin.LogEntry(logfunc, msg))
+        else:
+            logfunc(msg)
+
+    def info(self, string):
+        self._logfunc_or_enque(logging.info, string)
+
+    def debug(self, string):
+        self._logfunc_or_enque(logging.debug, string)
+    
+    class BypassProxy:
+        def __init__(self, instance):
+            self.instance = instance
+
+        def info(self, string):
+            logging.info(self.instance._logfmt(string))
+
+        def debug(self, string):
+            logging.debug(self.instance._logfmt(string))
+
+    class Accumulator:
+        def __init__(self, instance):
+            self.instance = instance
+
+        def __enter__(self):
+            # Kind of a NOP but should allow for nested log surpression
+            self.previous_log = getattr(self.instance, '_logging_log', None)
+            self.instance._logging_log = []
+            return LoggingMixin.BypassProxy(self.instance)
+
+        def __exit__(self, *args):
+            for e in self.instance._logging_log:
+                e.logfunc(e.string)
+            self.instance._logging_log = self.previous_log
+
+    def accumulate_logs(self):
+        return LoggingMixin.Accumulator(self)
+
+
+class Server(LoggingMixin):
     def __init__(self, id_, replicas):
         self.id = id_
         self.replicas = replicas 
@@ -82,6 +132,7 @@ class Server:
 
         self.state = None
         self.leader = 'FFFF'
+        self.failed = set() #Just for logging
         self.transition_to_state(State.FOLLOWER)
 
     @property
@@ -90,53 +141,59 @@ class Server:
         
     @property
     def quorum(self):
-        return len(self.replicas)//2 + 1
+        return len(self.replicas) // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
-        if self.state != state:
-            logging.info('Term {} {} -> {}'.format(str(self.current_term),
-                str(self.state), str(state)))
-
-        if state == State.LEADER:
-            logging.info('Voted for by {}'.format(str(list(self.votes))))
-            # Re-initialize any necessary fields
-            self.state = State.LEADER
-            self.leader = self.id
-            self.prev_heartbeat = current_time()
-            for replica in self.replicas:
-                # For each server, index of next log entry to send to that server
-                # (initialized to leader last log index + 1)
-                self.next_idx[replica] = self.commit_idx + 1
-                # For each server, index of highest log entry known to be 
-                # replicated on server (initialized to 0, increases monotonically)
-                self.match_idx[replica] = 0
-
-            self.broadcast_heartbeat()
-            
-        elif state == State.FOLLOWER:
-            self.state = State.FOLLOWER
-            if msg:
-                self.leader = msg['leader']
-                self.current_term = msg['term']
-            self.votes = set()
-            self.voted_for = None
-
-        elif state == State.CANDIDATE:
-            self.state = State.CANDIDATE
-            self.leader = 'FFFF' # ID of the assumed leader
-            self.reset_timeouts()
-            if term is None:
-                self.current_term += 1
+        prev_state = self.state
+        prev_term = self.current_term
+        with self.accumulate_logs() as bypass_log:
+            if state == State.LEADER:
+                self.debug('Voted for by {}'.format(str(list(self.votes))))
+                # Re-initialize any necessary fields
+                self.state = State.LEADER
+                self.leader = self.id
+                self.prev_heartbeat = current_time()
+                for replica in self.replicas:
+                    # For each server, index of next log entry to send to that server
+                    # (initialized to leader last log index + 1)
+                    self.next_idx[replica] = self.commit_idx + 1
+                    # For each server, index of highest log entry known to be 
+                    # replicated on server (initialized to 0, increases monotonically)
+                    self.match_idx[replica] = 0
+    
+                self.broadcast_heartbeat()
+                
+            elif state == State.FOLLOWER:
+                if self.failed:
+                    bypass_log.info('Failed {}'.format(self.failed))
+                self.state = State.FOLLOWER
+                if msg:
+                    self.leader = msg['leader']
+                    self.current_term = msg['term']
+                self.votes = set()
+                self.failed = set()
+                self.voted_for = None
+    
+            elif state == State.CANDIDATE:
+                self.state = State.CANDIDATE
+                self.leader = 'FFFF' # ID of the assumed leader
+                self.reset_timeouts()
+                if term is None:
+                    self.current_term += 1
+                else:
+                    self.current_term = term
+                # Reset any votes from a previous election
+                self.votes = set((self.id,))
+                # Vote for self
+                self.voted_for = self.id
+                
             else:
-                self.current_term = term
-            # Reset any votes from a previous election
-            self.votes = set((self.id,))
-            # Vote for self
-            self.voted_for = self.id
-            
-        else:
-            #TODO define a proper exception
-            raise 1
+                #TODO define a proper exception
+                raise 1
+
+            if self.state != prev_state or self.current_term != prev_term:
+                bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
+
 
     def check_timeout(self):
         """Determines if an election needs to take place"""
@@ -152,7 +209,12 @@ class Server:
         self.election_timeout = random.uniform(0.15, 0.3)
         self.prev_timeout = current_time()
 
+
     def send(self, dst, **kwargs):
+        """
+        Sends a message through the socket, ensuring that the required
+        fields are included
+        """
         msg = kwargs.copy()
         msg.update(**{
             'src': self.id,
@@ -160,10 +222,11 @@ class Server:
             'leader': self.leader,
             'term': self.current_term
         })
-        logging.debug('Replica ' + self.id + ' sending ' +json.dumps(msg))
+        self.debug('Replica ' + self.id + ' sending ' + json.dumps(msg))
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
+        """Sends a reply to the source"""
         mymsg = msg.copy()
         mymsg.update(**kwargs)
         mymsg['src'] = msg['dst']
@@ -171,28 +234,31 @@ class Server:
         self.send(**mymsg)
 
     def send_redirect(self, msg):
-        """Sends a redirect message back to the client"""
+        """Sends a redirect message back to the source"""
         self.reply(msg, type='redirect')
 
     def send_ok(self, msg, **kwargs):
-        """Sends an OK message back to the client"""
+        """Sends an OK message back to the source"""
         self.reply(msg, type='ok', **kwargs)
 
     def send_fail(self, msg):
-        """Sends a fail message back to the client"""
+        """Sends a fail message back to the source"""
         self.reply(msg, type='fail')
-
-    def broadcast_heartbeat(self):
-        for replica in self.replicas:
-            self.send_append_entries(replica, prev_log_idx =self.last_log_idx, prev_log_term=self.log[-1]['term'])
 
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
         pass
 
-    ##
-    # RequestVotesRPC
-    ##
+    def broadcast_heartbeat(self):
+        """Sends a heartbeat to all of the replicas"""
+        for replica in self.replicas:
+            self.send_append_entries(
+                replica, 
+                prev_log_idx=self.last_log_idx, 
+                prev_log_term=self.log[-1]['term']
+            )
+
+    # --------------------------- REQUEST VOTES RPC ---------------------------
 
     def send_request_vote(self):
         """Sends RequestVote RPCs to all other servers"""
@@ -206,8 +272,16 @@ class Server:
             })
 
     def msg_up_to_date(self, msg):
+        """
+        Determines if candidate's log is at least as up-to-date 
+        as receiver's log
+        """
+        # If the logs have last entries with different terms, then 
+        # the log with the later term is more up-to-date.
         if self.log[-1]['term'] != msg['last_log_term']:
             return self.log[-1]['term'] <= msg['last_log_term']
+        # If the logs end with the same term, then whichever log 
+        # is longer is more up-to-date.
         else:
             return self.last_log_idx <= msg['last_log_idx']
 
@@ -215,16 +289,19 @@ class Server:
     def handle_request_vote(self, msg):
         """Handles a RequestVote RPC from a candidate"""
         def reject(hint=''):
-            logging.info('Rejecting request vote from {} {} '.format(msg['src'], hint))
+            self.info('Rejecting {}.request_vote ({})'.format(msg['src'], hint))
             self.reply(msg, type='response_vote', value='false')
 
+        # Reply false if term < currentTerm
         if msg['term'] < self.current_term:
             reject('Term {}<{}'.format(msg['src'], msg['term'], self.current_term))
+        # If votedFor is null or candidateId, and candidate’s log is at
+        # least as up-to-date as receiver’s log, grant vote
         else:
             if self.msg_up_to_date(msg):
                 if self.voted_for is None or self.voted_for == msg['src']:
                     self.voted_for = msg['src']
-                    logging.info('Term {} Voted for {}'.format(self.current_term,
+                    self.info('Term {} Voted for {}'.format(self.current_term,
                             self.voted_for))
                     self.reply(msg, type='response_vote', value='true')
                     self.reset_timeouts()
@@ -238,12 +315,13 @@ class Server:
         """Handles a received vote during an election"""
         if msg['value'] == 'true':
             self.votes.add(msg['src'])
+            # If votes received from majority of servers: become leader
             if len(self.votes) >= self.quorum:
                 self.transition_to_state(State.LEADER)
 
-    ##
-    # AppendEntriesRPC
-    ##
+    # ------------------------ END OF REQUEST VOTES RPC -----------------------
+
+    # --------------------------- APPEND ENTRIES RPC --------------------------
 
     def send_append_entries(self, replica, entries=None, prev_log_term=0, prev_log_idx=0):
         """Sends an AppendEntries RPC to a replica"""
@@ -251,18 +329,34 @@ class Server:
             'type': 'append_entries',
             # Term of prev_log_idx entry
             'prev_log_term': prev_log_term,
+            # Index of log entry immediately preceeding new ones
             'prev_log_idx': prev_log_idx,
             'entries': entries if entries is not None else [],
             'leader_commit': self.commit_idx
         })
 
     def try_append_entries(self, replica):
-            # Adhering to RAFT ensures that the leader will always have
-            # the longest log, no worries about prev_log_idx being out
-            # of bounds
-            logging.info('Sending AppendEntry(prev_idx, prev_term)')
-            self.send_append_entries(replica, self.log[self.next_idx[replica]:], 
-                    self.log[self.match_idx[replica]]['term'], self.match_idx[replica])    
+        # Adhering to RAFT ensures that the leader will always have
+        # the longest log, no worries about prev_log_idx being out
+        # of bounds
+
+        # Tempting to use match_idx, but that is initialized to 0
+        prev_idx = self.next_idx[replica] - 1
+        prev_term = self.log[prev_idx]['term']
+        entries = self.log[prev_idx + 1:]
+        entries = entries[:100]
+
+        self.info('Sending {}.AppendEntries[{}:{}]'.format(replica,
+            self.next_idx[replica], len(self.log)))
+        self.send_append_entries(
+            replica, 
+            # Log entries to store
+            entries, 
+            # Term of highest log entry known to be replicated on the server
+            prev_term, 
+            # Index of highest log entry known to be replicated on the server
+            prev_idx
+        ) 
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -275,24 +369,45 @@ class Server:
         prev_log_idx = msg['prev_log_idx']
         prev_log_term = msg['prev_log_term']
 
-        # If 'Leader' has a term equal to or greater than term, they
-        # had to be properly elected and must be safe to follow
-        if msg['term'] < self.current_term:
-            logging.info('Recieved out-of-term message')
+        def reject(string):
+            self.info('Failing {}.append_entries ({})'.format(msg['src'], string))
             self.send_fail(msg)
+
+        # If server receives request with stale term number,
+        # it rejects the request
+        if msg['term'] < self.current_term:
+            reject('term {}<{}'.format(self.current_term, msg['term']))
+        # If leader's term is equal to or greater than server's term, 
+        # then leader had to have been properly elected and, therefore,
+        # is safe to follow
         else:
+            # If RPC request or response contains term T > currentTerm: 
+            # set currentTerm = T, convert to follower
             self.transition_to_state(State.FOLLOWER, msg)
             self.reset_timeouts()
 
+            # Reply false if log doesn’t contain an entry at prevLogIndex
+            # whose term matches prevLogTerm
             if prev_log_idx > self.last_log_idx:
-                logging.info('Prev log index greater than max log index')
-                self.send_fail(msg)
+                reject('index {}>{}'.format(prev_log_idx, self.last_log_idx))
             elif self.log[prev_log_idx]['term'] != prev_log_term:
-                logging.info('prev term doesn\'t match {} {}'.format(self.log[prev_log_idx]['term'], prev_log_term))
-                self.send_fail(msg)
+                reject('prev term {}!={}'.format(self.log[prev_log_idx]['term'],
+                        prev_log_term))
             else:
-                self.log = self.log[:prev_log_idx + 1]
-                self.log.extend(msg['entries'])
+                if msg['entries']:
+                    last = prev_log_idx + 1
+                    # If an existing entry conflicts with a new one (same index
+                    # but different terms), delete the existing entry and all
+                    # that follow it
+                    if last <= self.last_log_idx:
+                        self.info('Deleting entries [{}:]'.format(last))
+                        del self.log[last:]
+                    self.info('Appending {} entries ({})'.format(len(msg['entries']),
+                            [e['MID'] for e in msg['entries']]))
+                    # Append any new entries not already in the log
+                    self.log.extend(msg['entries'])
+                # If leaderCommit > commitIndex, set commitIndex =
+                # min(leaderCommit, index of last new entry)
                 self.commit_idx = min(self.last_log_idx, msg['leader_commit'])
                 self.send_ok(msg)
 
@@ -310,25 +425,30 @@ class Server:
                 # From this replicas persective, the message was already ready to
                 # be comitted, so only need N//2 confirmations. Therfore the second
                 # highest index is the one to mark comitted
-                second_highest_idx = list(sorted(self.match_idx.values()))[-2]
-                if self.commit_idx < second_highest_idx:
-                    logging.info('Committing entry {}'.format(self.commit_idx))
-                    self.commit_idx = second_highest_idx
+                committed_idx = list(sorted(self.match_idx.values()))[-self.quorum // 2]
+                if self.commit_idx < committed_idx:
+                    self.info('Committing entry {}'.format(self.commit_idx))
+                    # If there exists an N such that N > commitIndex, a majority
+                    # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
+                    # set commitIndex = N
+                    self.commit_idx = committed_idx
                     entry = self.log[self.commit_idx]
-                    self.send_ok(entry['msg'])
-
+                    self.send_ok({'dst': self.id, 'src': entry['src'],
+                            'MID': entry['MID']})
+            # If AppendEntries fails because of log inconsistency:
+            # decrement nextIndex and retry
             elif msg['type'] == 'fail':
-                self.match_idx[msg['src']] -= 1
                 self.next_idx[msg['src']] -= 1
 
-                logging.info('Term {} Decremeting Replica {} next_idx {}'.format(self.current_term, msg['src'], self.next_idx[msg['src']]))
+                self.info('Decremeting {}.next_idx {}'.format(msg['src'],
+                        self.next_idx[msg['src']]))
                 self.try_append_entries(msg['src'])
             else:
                 raise 1
 
-    ##
-    # Client Interface
-    ##
+    # ----------------------- END OF APPEND ENTRIES RPC -----------------------
+
+    # --------------------------- CLIENT INTERFACE ----------------------------
 
     @dispatch.add('put')
     def handle_put(self, msg):
@@ -336,9 +456,11 @@ class Server:
         if self.state != State.LEADER:
             # Send fail if leader unknown
             if self.leader == 'FFFF':
+                self.failed.add('{}.put'.format(msg['src']))
                 self.send_fail(msg)
             # Else, redirect to the leader
             else:
+                self.info('{}.put redirected to {}'.format(msg['src'], self.leader))
                 self.send_redirect(msg)
             return
 
@@ -347,7 +469,7 @@ class Server:
         value = msg['value']
         entry = {
             'command': 'put',
-            'msg': msg,
+            'src': msg['src'],
             'MID': msg['MID'],
             'key': key,
             'value': value,
@@ -363,11 +485,14 @@ class Server:
             # Respond with the value if it exists
             self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
         elif self.leader == 'FFFF':
+            self.failed.add('{}.get'.format(msg['src']))
             self.send_fail(msg)
         else:
+            self.info('{}.get redirected to {}'.format(msg['src'], self.leader))
             self.send_redirect(msg)
 
     def apply(self, entries):
+        """Commits the entries to the state machine"""
         for e in entries:
             if e['command'] == 'put':
                 self.datastore[e['key']] = e['value']
@@ -376,28 +501,40 @@ class Server:
         """Runs the main loop"""
         while True:
             time = current_time()
+            # Leaders send empty AppendEntries RPCs (heartbeats) to each 
+            # server during idle periods to prevent election timeouts
             if self.state == State.LEADER:
                 span = time - self.prev_heartbeat
                 if span >= HEARTBEAT_FREQ:
-                    logging.info('Term {}: Sent Heartbeat'.format(self.current_term))
+                    self.debug('Sent Heartbeat')
                     self.broadcast_heartbeat()
                     # Reset the heartbeat timer
                     self.prev_heartbeat = time
 
+            # Election timeout met, so start election
             if self.check_timeout():
-                # Election timeout met, so start election
                 self.transition_to_state(State.CANDIDATE)
                 self.send_request_vote()
 
+            # If commitIndex > lastApplied: increment lastApplied, 
+            # apply log[lastApplied] to state machine
             if self.commit_idx > self.last_applied:
-                self.apply(self.log[self.last_applied:self.commit_idx + 1])
+                if self.commit_idx - self.last_applied > 1:
+                    self.info('Applying [{}, {}]'.format(self.last_applied + 1,
+                            self.commit_idx))
+                else:
+                    self.info('Applying {}'.format(self.commit_idx))
+                self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)
             if msg:
-                logging.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+                self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+                # If RPC request or response contains term T > currentTerm: 
+                # set currentTerm = T, convert to follower 
                 if 'term' in msg and self.current_term < msg['term']:
-                    logging.info('Reverting to FOLLOWER, Term {}.{} from {}'.format(msg['term'], msg['type'], msg['src']))
+                    self.info('Reverting to FOLLOWER, Term {}.{} from {}'
+                        .format(msg['term'], msg['type'], msg['src']))
                     self.transition_to_state(State.FOLLOWER, msg)
                     self.reset_timeouts()
                 self.dispatch(msg['type'], msg)
@@ -414,7 +551,8 @@ if __name__ == '__main__':
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
         logging.basicConfig(filename=args.id + '.log', filemode='w',
-                level=level, format='%(asctime)s %(message)s')
+                level=level, datefmt='%M:%S',
+                format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
 
 
     # Initialize the datastore with the arguments passed

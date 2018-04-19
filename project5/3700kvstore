@@ -302,7 +302,7 @@ class Server(LoggingMixin):
                 # Index of candidate's last log entry
                 'last_log_idx': self.last_log_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[-1]['term'] if self.log else 0
+                'last_log_term': self.last_log_term
             })
 
     def msg_up_to_date(self, msg):
@@ -312,8 +312,8 @@ class Server(LoggingMixin):
         """
         # If the logs have last entries with different terms, then 
         # the log with the later term is more up-to-date.
-        if self.log[-1]['term'] != msg['last_log_term']:
-            return self.log[-1]['term'] <= msg['last_log_term']
+        if self.last_log_term != msg['last_log_term']:
+            return self.last_log_term <= msg['last_log_term']
         # If the logs end with the same term, then whichever log 
         # is longer is more up-to-date.
         else:

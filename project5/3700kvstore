@@ -137,40 +137,47 @@ class Server(LoggingMixin):
 
     @property
     def last_log_idx(self):
+        """Returns the index of the last log entry"""
         return len(self.log) - 1
 
     @property
     def last_log_term(self):
+        """Returns the term of the last log entry"""
         return self.log[-1]['term']
 
     @property
     def first_uncommitted_idx(self):
+        """Returns the index of the first uncommitted log entry"""
         return self.commit_idx + 1
 
     @property
-    def uncomitted_entries(self):
+    def uncommitted_entries(self):
+        """Returns all of the uncommitted log entries"""
         return self.log[self.first_uncommitted_idx:]
 
     @property
     def n(self):
+        """Returns the total number of servers"""
         return len(self.replicas) + 1
 
     @property
     def quorum(self):
+        """Calculates the quorum"""
         return self.n // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
+        """Handles what happens when transitioning from one state to another"""
         prev_state = self.state
         prev_term = self.current_term
         with self.accumulate_logs() as bypass_log:
             # We don't want to have dangling clients waiting on our
             # leader if the leader transitions away from leading
             if self.state == State.LEADER and state != State.LEADER:
-                if self.uncomitted_entries:
+                if self.uncommitted_entries:
                     labels = ['{}.{}'.format(e['src'], e['command'])
-                            for e in self.uncomitted_entries]
+                        for e in self.uncommitted_entries]
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))
-                    for e in self.uncomitted_entries:
+                    for e in self.uncommitted_entries:
                         self.send_fail_entry(e)
 
             if state == State.LEADER:
@@ -186,7 +193,6 @@ class Server(LoggingMixin):
                     # For each server, index of highest log entry known to be 
                     # replicated on server (initialized to 0, increases monotonically)
                     self.match_idx[replica] = 0
-    
                 self.broadcast_heartbeat()
                 
             elif state == State.FOLLOWER:
@@ -219,7 +225,6 @@ class Server(LoggingMixin):
 
             if self.state != prev_state or self.current_term != prev_term:
                 bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
-
 
     def check_timeout(self):
         """Determines if an election needs to take place"""
@@ -272,14 +277,33 @@ class Server(LoggingMixin):
         self.reply(msg, type='fail')
 
     def send_ok_entry(self, entry):
-        self.info('Sending {} {}.{}({}, {}) OK'.format(entry['MID'], entry['src'], entry['command'],
-                entry['key'], entry['value']))
-        self.send_ok({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
+        """Sends an ok response corresponding to the given entry"""
+        self.info('Sending {} {}.{}({}, {}) OK'.format(
+            entry['MID'], 
+            entry['src'], 
+            entry['command'],
+            entry['key'], 
+            entry['value']
+        ))
+        self.send_ok({
+            'dst': self.id, 
+            'src': entry['src'], 
+            'MID': entry['MID']
+        })
 
     def send_fail_entry(self, entry):
-        self.info('Sending {} {}.{}({}, {}) FAIL'.format(entry['MID'], entry['src'], entry['command'],
-                entry['key'], entry['value']))
-        self.send_fail({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
+        """Sends a fail response corresponding to the given entry"""
+        self.info('Sending {} {}.{}({}, {}) FAIL'.format(
+            entry['MID'], 
+            entry['src'], 
+            entry['command'],
+            entry['key'], 
+            entry['value']))
+        self.send_fail({
+            'dst': self.id, 
+            'src': entry['src'], 
+            'MID': entry['MID']
+        })
 
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
@@ -337,7 +361,7 @@ class Server(LoggingMixin):
                     self.voted_for = msg['src']
                     self.info('Term {} Voted for {}'.format(self.current_term,
                             self.voted_for))
-                    self.reply(msg, type='response_vote', value='true')
+                    self.reply(msg, type='response_vote', value=True)
                     self.reset_timeouts()
                 else:
                     reject('already voted this term')
@@ -347,7 +371,7 @@ class Server(LoggingMixin):
     @dispatch.add('response_vote')
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
-        if msg['value'] == 'true':
+        if self.state == State.CANDIDATE and msg['value']:
             self.votes.add(msg['src'])
             # If votes received from majority of servers: become leader
             if len(self.votes) >= self.quorum:
@@ -370,6 +394,7 @@ class Server(LoggingMixin):
         })
 
     def try_append_entries(self, replica):
+        """Sends an AppendEntry RPC to the given replica"""
         # Adhering to RAFT ensures that the leader will always have
         # the longest log, no worries about prev_log_idx being out
         # of bounds
@@ -429,13 +454,13 @@ class Server(LoggingMixin):
                         prev_log_term))
             else:
                 if msg['entries']:
-                    last = prev_log_idx + 1
+                    next_idx = prev_log_idx + 1
                     # If an existing entry conflicts with a new one (same index
                     # but different terms), delete the existing entry and all
                     # that follow it
-                    if last <= self.last_log_idx:
-                        self.info('Deleting entries [{}:]'.format(last))
-                        del self.log[last:]
+                    if next_idx <= self.last_log_idx:
+                        self.info('Deleting entries [{}:]'.format(next_idx))
+                        del self.log[next_idx:]
                     self.info('Appending {} entries ({})'.format(len(msg['entries']),
                             [e['MID'] for e in msg['entries']]))
                     # Append any new entries not already in the log
@@ -452,14 +477,14 @@ class Server(LoggingMixin):
             if msg['type'] == 'ok':
                 self.match_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
                 self.next_idx[msg['src']] = self.match_idx[msg['src']] + 1
-                # given N replicas, N/2 + 1 form a quorum. If you sort the current
+                # Given N replicas, N/2 + 1 form a quorum. If you sort the current
                 # index each is on, the N//2 + 1'th index (middle index) is the one
                 # which brings something into the majorty and commits it
                 #
-                # From this replicas persective, the message was already ready to
-                # be comitted, so only need N//2 confirmations. Therfore the second
+                # From this replica's persective, the message was already ready to
+                # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
-                new_commit_idx = list(sorted(self.match_idx.values()))[-self.n//2]
+                new_commit_idx = list(sorted(self.match_idx.values()))[-self.n // 2]
                 if self.commit_idx < new_commit_idx:
                     self.info('Committing entry {}'.format(self.commit_idx))
                     # If there exists an N such that N > commitIndex, a majority
@@ -536,6 +561,8 @@ class Server(LoggingMixin):
             if e['command'] == 'put':
                 self.datastore[e['key']] = e['value']
 
+    # ------------------------ END OF CLIENT INTERFACE ------------------------
+
     def run(self):
         """Runs the main loop"""
         while True:
@@ -563,7 +590,7 @@ class Server(LoggingMixin):
                             self.commit_idx))
                 else:
                     self.info('Applying {}'.format(self.commit_idx))
-                self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
+                self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)
@@ -592,7 +619,6 @@ if __name__ == '__main__':
         logging.basicConfig(filename=args.id + '.log', filemode='w',
                 level=level, datefmt='%M:%S',
                 format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
-
 
     # Initialize the datastore with the arguments passed
     server = Server(args.id, args.replicas)

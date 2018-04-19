@@ -347,7 +347,7 @@ class Server(LoggingMixin):
     @dispatch.add('response_vote')
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
-        if msg['value']:
+        if self.state == State.CANDIDATE and msg['value']:
             self.votes.add(msg['src'])
             # If votes received from majority of servers: become leader
             if len(self.votes) >= self.quorum:

@@ -84,9 +84,9 @@ class Stats:
         self.failed_get = 0
         self.failed_put = 0
         self.incorrect = 0
-        self.duplicates = 0
-        self.unanswered_get = 0
-        self.unanswered_put = 0
+        self.duplicates = set()
+        self.unanswered_get = set()
+        self.unanswered_put = set()
         self.redirects = 0
         self.latencies = []
         self.died = 0
@@ -112,8 +112,14 @@ class Stats:
         print 'Total messages sent:', self.total_msgs
         print 'Total messages dropped:', self.total_drops
         print 'Total client get()/put() requests: %i/%i' % (self.total_get, self.total_put)
-        print 'Total duplicate responses:', self.duplicates
-        print 'Total unanswered get()/put() requests: %i/%i' % (self.unanswered_get, self.unanswered_put)
+        print 'Total duplicate responses:', len(self.duplicates)
+	if self.duplicates:
+		print 'Duplicate MIDs: ', self.duplicates
+        print 'Total unanswered get()/put() requests: %i/%i' % (len(self.unanswered_get), len(self.unanswered_put))
+	if self.unanswered_get:
+		print 'Unanswered gets: ', self.unanswered_get 
+	if self.unanswered_put:
+		print 'Unanswered puts: ', self.unanswered_put
         print 'Total redirects:', self.redirects
         print 'Total get()/put() failures: %i/%i' % (self.failed_get, self.failed_put)
         print 'Total get() with incorrect response:', self.incorrect
@@ -126,11 +132,12 @@ class Stats:
 
 class Client:
     class Request:
-        def __init__(self, get, key, val=None):
+        def __init__(self, get, key, val=None, mid=None):
             self.get = get
             self.key = key
             self.val = val
             self.ts = time.time()
+            self.mid = mid
 
     def __init__(self, simulator, cid):
         self.reqs = {}
@@ -155,7 +162,7 @@ class Client:
     def __create_get__(self, key):
         self.sim.stats.total_get += 1
         mid = self.__get_rand_str__()
-        self.reqs[mid] = self.Request(True, key)
+        self.reqs[mid] = self.Request(True, key, mid=mid)
         dst = self.__get_destination__()
         return {'src': self.cid, 'dst': dst, 'leader': self.leader,
                 'type': 'get', 'MID': mid, 'key': key}
@@ -163,15 +170,15 @@ class Client:
     def __create_put__(self, key, value):
         self.sim.stats.total_put += 1
         mid = self.__get_rand_str__()
-        self.reqs[mid] = self.Request(False, key, value)
+        self.reqs[mid] = self.Request(False, key, value, mid=mid)
         dst = self.__get_destination__()
         return {'src': self.cid, 'dst': dst, 'leader': self.leader,
                 'type': 'put', 'MID': mid, 'key': key, 'value': value}
 
     def finalize(self):
         for req in self.reqs.itervalues():
-            if req.get: self.sim.stats.unanswered_get += 1
-            else: self.sim.stats.unanswered_put += 1
+            if req.get: self.sim.stats.unanswered_get.add(req.mid)
+            else: self.sim.stats.unanswered_put.add(req.mid)
         
     def create_req(self, get=True):
         # create a get message, if possible
@@ -202,7 +209,7 @@ class Client:
 
         # is this a duplicate?
         if mid in self.completed:
-            self.sim.stats.duplicates += 1
+            self.sim.stats.duplicates.add(mid)
             return None
         
         # is this a message that I'm expecting?

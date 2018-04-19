@@ -138,15 +138,41 @@ class Server(LoggingMixin):
     @property
     def last_log_idx(self):
         return len(self.log) - 1
-        
+
+    @property
+    def last_log_term(self):
+        return self.log[-1]['term']
+
+    @property
+    def first_uncommitted_idx(self):
+        return self.commit_idx + 1
+
+    @property
+    def uncomitted_entries(self):
+        return self.log[self.first_uncommitted_idx:]
+
+    @property
+    def n(self):
+        return len(self.replicas) + 1
+
     @property
     def quorum(self):
-        return (len(self.replicas) + 1) // 2 + 1
+        return self.n // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
         prev_state = self.state
         prev_term = self.current_term
         with self.accumulate_logs() as bypass_log:
+            # We don't want to have dangling clients waiting on our
+            # leader if the leader transitions away from leading
+            if self.state == State.LEADER:
+                if self.uncomitted_entries:
+                    labels = ['{}.{}'.format(e['src'], e['command'])
+                            for e in self.uncomitted_entries]
+                    self.debug('Leaving leader state, sending Fail to {}'.format(labels))
+                    for e in self.uncomitted_entries:
+                        self.send_fail_entry(e)
+
             if state == State.LEADER:
                 self.debug('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
@@ -166,14 +192,10 @@ class Server(LoggingMixin):
             elif state == State.FOLLOWER:
                 if self.failed:
                     bypass_log.info('Failed {}'.format(self.failed))
+                self.state = State.FOLLOWER
                 if msg:
                     self.leader = msg['leader']
                     self.current_term = msg['term']
-                # If was previously a leader, send replies for any
-                # outstanding requests
-                if self.state == State.LEADER:
-                    self.handle_outstanding()
-                self.state = State.FOLLOWER
                 self.votes = set()
                 self.failed = set()
                 self.voted_for = None
@@ -198,28 +220,7 @@ class Server(LoggingMixin):
             if self.state != prev_state or self.current_term != prev_term:
                 bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
 
-    def handle_outstanding(self):
-        """
-        Sends a redirect or fail to the client for 
-        any outstanding requests
-        """
-        for log in self.log:
-            if 'success' in log and not log['success']:
-                # Leader unknown, so send fail
-                if self.leader == 'FFFF':
-                    self.send_fail({
-                        'dst': self.id, 
-                        'src': log['src'], 
-                        'MID': log['MID']
-                    })
-                # Leader known, so redirect to new leader
-                else:
-                    self.send_redirect({
-                        'dst': self.id, 
-                        'src': log['src'], 
-                        'MID': log['MID']
-                    })
-  
+
     def check_timeout(self):
         """Determines if an election needs to take place"""
         time = current_time()
@@ -270,6 +271,16 @@ class Server(LoggingMixin):
         """Sends a fail message back to the source"""
         self.reply(msg, type='fail')
 
+    def send_ok_entry(self, entry):
+        self.info('Sending {}.{}({}, {}) OK'.format(entry['src'], entry['command'],
+                entry['key'], entry['value']))
+        self.send_ok({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
+
+    def send_fail_entry(self, entry):
+        self.info('Sending {}.{}({}, {}) FAIL'.format(entry['src'], entry['command'],
+                entry['key'], entry['value']))
+        self.send_fail({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
+
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
         pass
@@ -277,11 +288,9 @@ class Server(LoggingMixin):
     def broadcast_heartbeat(self):
         """Sends a heartbeat to all of the replicas"""
         for replica in self.replicas:
-            self.send_append_entries(
-                replica, 
-                prev_log_idx=self.last_log_idx, 
-                prev_log_term=self.log[-1]['term']
-            )
+            self.send_append_entries(replica, 
+                    prev_log_idx=self.last_log_idx, 
+                    prev_log_term=self.last_log_term)
 
     # --------------------------- REQUEST VOTES RPC ---------------------------
 
@@ -293,7 +302,7 @@ class Server(LoggingMixin):
                 # Index of candidate's last log entry
                 'last_log_idx': self.last_log_idx,
                 # Term of candidate's last log entry
-                'last_log_term': self.log[-1]['term'] if self.log else 0
+                'last_log_term': self.last_log_term
             })
 
     def msg_up_to_date(self, msg):
@@ -303,8 +312,8 @@ class Server(LoggingMixin):
         """
         # If the logs have last entries with different terms, then 
         # the log with the later term is more up-to-date.
-        if self.log[-1]['term'] != msg['last_log_term']:
-            return self.log[-1]['term'] <= msg['last_log_term']
+        if self.last_log_term != msg['last_log_term']:
+            return self.last_log_term <= msg['last_log_term']
         # If the logs end with the same term, then whichever log 
         # is longer is more up-to-date.
         else:
@@ -381,7 +390,7 @@ class Server(LoggingMixin):
             prev_term, 
             # Index of highest log entry known to be replicated on the server
             prev_idx
-        )
+        ) 
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -427,8 +436,8 @@ class Server(LoggingMixin):
                     if last <= self.last_log_idx:
                         self.info('Deleting entries [{}:]'.format(last))
                         del self.log[last:]
-                    #self.info('Appending {} entries ({})'.format(len(msg['entries']),
-                    #        [e['MID'] for e in msg['entries']]))
+                    self.info('Appending {} entries ({})'.format(len(msg['entries']),
+                            [e['MID'] for e in msg['entries']]))
                     # Append any new entries not already in the log
                     self.log.extend(msg['entries'])
                 # If leaderCommit > commitIndex, set commitIndex =
@@ -450,23 +459,19 @@ class Server(LoggingMixin):
                 # From this replica's persective, the message was already ready to
                 # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
-                committed_idx = list(sorted(self.match_idx.values()))[-self.quorum + 1]
-
-                # If there exists an N such that N > commitIndex, a majority
-                # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
-                # set commitIndex = N
-                if (self.commit_idx < committed_idx and
-                    self.log[committed_idx]['term'] == self.current_term): 
+                committed_idx = list(sorted(self.match_idx.values()))[-self.n // 2]
+                if (self.commit_idx < committed_idx and 
+                    self.log[committed_idx]['term'] == self.current_term):
                     self.info('Committing entry {}'.format(self.commit_idx))
+                    # If there exists an N such that N > commitIndex, a majority
+                    # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
+                    # set commitIndex = N
                     self.commit_idx = committed_idx
                     entry = self.log[self.commit_idx]
-                    # If the request has not yet been fulfilled
-                    if not entry['success']:
-                        # Send an ok back to the client
-                        self.send_ok({'dst': self.id, 'src': entry['src'],
-                            'MID': entry['MID']})
-                        # Mark the request as fulfilled
-                        entry['success'] = True
+                    # Don't send OK to PUT/GET from an old term, when that leader
+                    # was reliquished it sent a fail and the client retried
+                    if entry['term'] == self.current_term:
+                        self.send_ok_entry(entry)
             # If AppendEntries fails because of log inconsistency:
             # decrement nextIndex and retry
             elif msg['type'] == 'fail':
@@ -505,40 +510,17 @@ class Server(LoggingMixin):
             'MID': msg['MID'],
             'key': key,
             'value': value,
-            'term': self.current_term,
-            # True if an 'ok' response has been sent to the client
-            'success': False
+            'term': self.current_term
         }
         self.log.append(entry)
         self.broadcast_append_entries()
-
-    def set_entry_ok(self, MID):
-        """Marks the given request as fulfilled"""
-        for log in self.log:
-            if 'MID' in log and log['MID'] == MID:
-                log['success'] = True
-                break
-
-    def check_entry_ok(self, MID):
-        """
-        Determines whether or not an 'ok' has been sent
-        to the client for the given request
-        """   
-        for log in self.log:
-            if 'MID' in log and log['MID'] == MID:
-                return log['success']
-        return False
 
     @dispatch.add('get')
     def handle_get(self, msg):
         """Handles a get request from the client"""
         if self.state == State.LEADER:
-            # If the request has not yet been fulfilled
-            if not self.check_entry_ok(msg['MID']):
-                # Respond with the value if it exists
-                self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
-                # Mark the request as fulfilled
-                self.set_entry_ok(msg['MID'])
+            # Respond with the value if it exists
+            self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
         elif self.leader == 'FFFF':
             self.failed.add('{}.get'.format(msg['src']))
             self.send_fail(msg)
@@ -586,7 +568,7 @@ class Server(LoggingMixin):
 
             msg = self.sock.recv(timeout=0.05)
             if msg:
-                self.debug('Replica ' + self.id + ' recieved ' + json.dumps(msg))
+                self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
                 # If RPC request or response contains term T > currentTerm: 
                 # set currentTerm = T, convert to follower 
                 if 'term' in msg and self.current_term < msg['term']:
@@ -605,14 +587,12 @@ if __name__ == '__main__':
             nargs='+', help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
-    # Uncomment in order to print debug logs
-    #logging.getLogger().setLevel(logging.DEBUG)
-
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
         logging.basicConfig(filename=args.id + '.log', filemode='w',
                 level=level, datefmt='%M:%S',
                 format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
+
 
     # Initialize the datastore with the arguments passed
     server = Server(args.id, args.replicas)

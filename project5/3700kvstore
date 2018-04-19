@@ -137,29 +137,36 @@ class Server(LoggingMixin):
 
     @property
     def last_log_idx(self):
+        """Returns the index of the last log entry"""
         return len(self.log) - 1
 
     @property
     def last_log_term(self):
+        """Returns the term of the last log entry"""
         return self.log[-1]['term']
 
     @property
     def first_uncommitted_idx(self):
+        """Returns the index of the first uncommitted log entry"""
         return self.commit_idx + 1
 
     @property
     def uncommitted_entries(self):
+        """Returns all of the uncommitted log entries"""
         return self.log[self.first_uncommitted_idx:]
 
     @property
     def n(self):
+        """Returns the total number of servers"""
         return len(self.replicas) + 1
 
     @property
     def quorum(self):
+        """Calculates the quorum"""
         return self.n // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
+        """Handles what happens when transitioning from one state to another"""
         prev_state = self.state
         prev_term = self.current_term
         with self.accumulate_logs() as bypass_log:
@@ -186,7 +193,6 @@ class Server(LoggingMixin):
                     # For each server, index of highest log entry known to be 
                     # replicated on server (initialized to 0, increases monotonically)
                     self.match_idx[replica] = 0
-    
                 self.broadcast_heartbeat()
                 
             elif state == State.FOLLOWER:
@@ -219,7 +225,6 @@ class Server(LoggingMixin):
 
             if self.state != prev_state or self.current_term != prev_term:
                 bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
-
 
     def check_timeout(self):
         """Determines if an election needs to take place"""
@@ -272,11 +277,13 @@ class Server(LoggingMixin):
         self.reply(msg, type='fail')
 
     def send_ok_entry(self, entry):
+        """Sends an ok response corresponding to the given entry"""
         self.info('Sending {}.{}({}, {}) OK'.format(entry['src'], entry['command'],
                 entry['key'], entry['value']))
         self.send_ok({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
 
     def send_fail_entry(self, entry):
+        """Sends a fail response corresponding to the given entry"""
         self.info('Sending {}.{}({}, {}) FAIL'.format(entry['src'], entry['command'],
                 entry['key'], entry['value']))
         self.send_fail({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
@@ -370,6 +377,7 @@ class Server(LoggingMixin):
         })
 
     def try_append_entries(self, replica):
+        """Sends an AppendEntry RPC to the given replica"""
         # Adhering to RAFT ensures that the leader will always have
         # the longest log, no worries about prev_log_idx being out
         # of bounds
@@ -591,7 +599,6 @@ if __name__ == '__main__':
         logging.basicConfig(filename=args.id + '.log', filemode='w',
                 level=level, datefmt='%M:%S',
                 format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
-
 
     # Initialize the datastore with the arguments passed
     server = Server(args.id, args.replicas)

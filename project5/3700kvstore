@@ -486,15 +486,15 @@ class Server(LoggingMixin):
         self.log.append(entry)
         self.broadcast_append_entries()
 
-    def set_entry_ok(self, key):
+    def set_entry_ok(self, MID):
         for log in self.log:
-            if 'key' in log and log['key'] == key:
+            if 'MID' in log and log['MID'] == MID:
                 log['success'] = True
                 break
 
-    def check_entry_ok(self, key):
+    def check_entry_ok(self, MID):
         for log in self.log:
-            if 'key' in log and log['key'] == key:
+            if 'MID' in log and log['MID'] == MID:
                 return log['success']
         return False
 
@@ -503,11 +503,11 @@ class Server(LoggingMixin):
         """Handles a get request from the client"""
         if self.state == State.LEADER:
             # If the request has not yet been fulfilled
-            if not self.check_entry_ok(msg['key']):
+            if not self.check_entry_ok(msg['MID']):
                 # Respond with the value if it exists
                 self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
                 # Mark the request as fulfilled
-                self.set_entry_ok(msg['key'])
+                self.set_entry_ok(msg['MID'])
         elif self.leader == 'FFFF':
             self.failed.add('{}.get'.format(msg['src']))
             self.send_fail(msg)

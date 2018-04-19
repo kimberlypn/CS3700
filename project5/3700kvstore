@@ -437,13 +437,13 @@ class Server(LoggingMixin):
                         prev_log_term))
             else:
                 if msg['entries']:
-                    last = prev_log_idx + 1
+                    next_idx = prev_log_idx + 1
                     # If an existing entry conflicts with a new one (same index
                     # but different terms), delete the existing entry and all
                     # that follow it
-                    if last <= self.last_log_idx:
+                    if next_idx <= self.last_log_idx:
                         self.info('Deleting entries [{}:]'.format(last))
-                        del self.log[last:]
+                        del self.log[next_idx:]
                     self.info('Appending {} entries ({})'.format(len(msg['entries']),
                             [e['MID'] for e in msg['entries']]))
                     # Append any new entries not already in the log

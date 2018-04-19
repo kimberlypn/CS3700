@@ -459,7 +459,7 @@ class Server(LoggingMixin):
                     # but different terms), delete the existing entry and all
                     # that follow it
                     if next_idx <= self.last_log_idx:
-                        self.info('Deleting entries [{}:]'.format(last))
+                        self.info('Deleting entries [{}:]'.format(next_idx))
                         del self.log[next_idx:]
                     self.info('Appending {} entries ({})'.format(len(msg['entries']),
                             [e['MID'] for e in msg['entries']]))

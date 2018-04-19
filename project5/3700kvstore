@@ -141,7 +141,7 @@ class Server(LoggingMixin):
         
     @property
     def quorum(self):
-        return len(self.replicas) // 2 + 1
+        return (len(self.replicas) + 1) // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
         prev_state = self.state
@@ -356,7 +356,7 @@ class Server(LoggingMixin):
             prev_term, 
             # Index of highest log entry known to be replicated on the server
             prev_idx
-        ) 
+        )
 
     def broadcast_append_entries(self):
         """Sends an AppendEntries RPC to all replicas"""
@@ -402,8 +402,8 @@ class Server(LoggingMixin):
                     if last <= self.last_log_idx:
                         self.info('Deleting entries [{}:]'.format(last))
                         del self.log[last:]
-                    self.info('Appending {} entries ({})'.format(len(msg['entries']),
-                            [e['MID'] for e in msg['entries']]))
+                    #self.info('Appending {} entries ({})'.format(len(msg['entries']),
+                    #        [e['MID'] for e in msg['entries']]))
                     # Append any new entries not already in the log
                     self.log.extend(msg['entries'])
                 # If leaderCommit > commitIndex, set commitIndex =
@@ -418,19 +418,20 @@ class Server(LoggingMixin):
             if msg['type'] == 'ok':
                 self.match_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
                 self.next_idx[msg['src']] = self.match_idx[msg['src']] + 1
-                # given N replicas, N/2 + 1 form a quorum. If you sort the current
+                # Given N replicas, N/2 + 1 form a quorum. If you sort the current
                 # index each is on, the N//2 + 1'th index (middle index) is the one
                 # which brings something into the majorty and commits it
                 #
-                # From this replicas persective, the message was already ready to
-                # be comitted, so only need N//2 confirmations. Therfore the second
+                # From this replica's persective, the message was already ready to
+                # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
-                committed_idx = list(sorted(self.match_idx.values()))[-self.quorum // 2]
-                if self.commit_idx < committed_idx:
+                committed_idx = list(sorted(self.match_idx.values()))[-self.quorum + 1]
+
+                # If there exists an N such that N > commitIndex, a majority
+                # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
+                # set commitIndex = N
+                if self.commit_idx < committed_idx: 
                     self.info('Committing entry {}'.format(self.commit_idx))
-                    # If there exists an N such that N > commitIndex, a majority
-                    # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
-                    # set commitIndex = N
                     self.commit_idx = committed_idx
                     entry = self.log[self.commit_idx]
                     self.send_ok({'dst': self.id, 'src': entry['src'],
@@ -526,7 +527,7 @@ class Server(LoggingMixin):
                             self.commit_idx))
                 else:
                     self.info('Applying {}'.format(self.commit_idx))
-                self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
+                self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)
@@ -550,12 +551,14 @@ if __name__ == '__main__':
             nargs='+', help='IDs of all other replicas (four-digit hexs)')
     args = parser.parse_args()
 
+    # Uncomment in order to print debug logs
+    #logging.getLogger().setLevel(logging.DEBUG)
+
     if 'DEBUG_LEVEL' in os.environ:
         level = getattr(logging, os.environ['DEBUG_LEVEL'])
         logging.basicConfig(filename=args.id + '.log', filemode='w',
                 level=level, datefmt='%M:%S',
                 format='%(levelname)s %(asctime)s.%(msecs)03d: %(message)s')
-
 
     # Initialize the datastore with the arguments passed
     server = Server(args.id, args.replicas)

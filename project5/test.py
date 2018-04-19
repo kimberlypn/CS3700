@@ -21,6 +21,8 @@ parser.add_argument("--config-directory",
                     dest='config_dir',
                     default=None,
                     help='A subdirectory for run configs')
+parser.add_argument('--ignore-total-messages', action='store_true')
+parser.add_argument('--ignore-failed-messages', action='store_true')
 args = parser.parse_args()
 
 sim = None
@@ -50,13 +52,13 @@ def run_test(filename, description, requests, replicas, mayfail, tolerance, late
     if stats.died:
         print '\t\tTesting error: >0 replicas died unexpectedly'
         pf = 'FAIL'
-    if stats.failed_get + len(stats.unanswered_get) > requests * mayfail:
+    if (0 if args.ignore_failed_messages else stats.failed_get) + len(stats.unanswered_get) > requests * mayfail:
         print '\t\tTesting error: Too many failed and/or unanswered responses to client get() requests'
         pf = 'FAIL'
-    if stats.failed_put + len(stats.unanswered_put) > requests * mayfail:
+    if (0 if args.ignore_failed_messages else stats.failed_put) + len(stats.unanswered_put) > requests * mayfail:
         print '\t\tTesting error: Too many failed and/or unanswered responses to client put() requests'
         pf = 'FAIL'
-    if stats.total_msgs > requests * replicas * 2 * tolerance:
+    if not args.ignore_total_messages and stats.total_msgs > requests * replicas * 2 * tolerance:
         print '\t\tTesting error: Too many total messages'
         pf = 'FAIL'
     if stats.mean_latency > latency:

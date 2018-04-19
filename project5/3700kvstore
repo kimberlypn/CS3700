@@ -133,6 +133,8 @@ class Server(LoggingMixin):
         self.state = None
         self.leader = 'FFFF'
         self.failed = set() #Just for logging
+        self.fail_or_redirect = {}
+        self.fail_or_redirect_timer = 0
         self.transition_to_state(State.FOLLOWER)
 
     @property
@@ -151,9 +153,14 @@ class Server(LoggingMixin):
         return self.commit_idx + 1
 
     @property
+    def committed_entries(self):
+        """Returns all of the committed log entries"""
+        return self.log[1:self.first_uncommitted_idx]
+
+    @property
     def uncommitted_entries(self):
         """Returns all of the uncommitted log entries"""
-        return self.log[self.first_uncommitted_idx:]
+        return self.log[self.first_uncommitted_idx:]    
 
     @property
     def n(self):
@@ -164,7 +171,17 @@ class Server(LoggingMixin):
     def quorum(self):
         """Calculates the quorum"""
         return self.n // 2 + 1
-    
+
+    def get(self, key):
+        return self.datastore.get(key, '')
+
+    def put(self, key, value):
+        self.datastore[key] = value
+   
+    ##
+    # State Machine behavior
+    ##
+ 
     def transition_to_state(self, state, msg=None, term=None):
         """Handles what happens when transitioning from one state to another"""
         prev_state = self.state
@@ -253,7 +270,7 @@ class Server(LoggingMixin):
             'leader': self.leader,
             'term': self.current_term
         })
-        self.debug('Replica ' + self.id + ' sending ' + json.dumps(msg))
+        self.debug('Replica {} sending {}'.format(self.id, json.dumps(msg)))
         self.sock.send(msg)
         
     def reply(self, msg, **kwargs):
@@ -276,7 +293,7 @@ class Server(LoggingMixin):
         """Sends a fail message back to the source"""
         self.reply(msg, type='fail')
 
-    def send_ok_entry(self, entry):
+    def send_ok_entry(self, entry, **kwargs):
         """Sends an ok response corresponding to the given entry"""
         self.info('Sending {} {}.{}({}, {}) OK'.format(
             entry['MID'], 
@@ -289,7 +306,7 @@ class Server(LoggingMixin):
             'dst': self.id, 
             'src': entry['src'], 
             'MID': entry['MID']
-        })
+        }, **kwargs)
 
     def send_fail_entry(self, entry):
         """Sends a fail response corresponding to the given entry"""
@@ -497,11 +514,16 @@ class Server(LoggingMixin):
                         # Don't send OK to PUT/GET from an old term, when that leader
                         # was reliquished it sent a fail and the client retried
                         if entry['term'] == self.current_term:
-                            self.send_ok_entry(entry)
+                            if entry['command'] == 'put':
+                                self.send_ok_entry(entry)
+                            elif entry['command'] == 'get':
+                                self.send_ok_entry(entry, value=self.get(entry['key']))
+                            else:
+                                raise 1
             # If AppendEntries fails because of log inconsistency:
             # decrement nextIndex and retry
             elif msg['type'] == 'fail':
-                self.next_idx[msg['src']] -= 1
+                self.next_idx[msg['src']] = max(1, self.next_idx[msg['src']] - 1)
 
                 self.info('Decremeting {}.next_idx {}'.format(msg['src'],
                         self.next_idx[msg['src']]))
@@ -514,52 +536,38 @@ class Server(LoggingMixin):
     # --------------------------- CLIENT INTERFACE ----------------------------
 
     @dispatch.add('put')
+    @dispatch.add('get')
     def handle_put(self, msg):
         """Handles a put request from the client"""
-        if self.state != State.LEADER:
-            # Send fail if leader unknown
-            if self.leader == 'FFFF':
-                self.failed.add('{} {}.put'.format(msg['MID'], msg['src']))
-                self.send_fail(msg)
-            # Else, redirect to the leader
-            else:
-                self.info('{} {}.put redirected to {}'.format(msg['MID'], msg['src'], self.leader))
-                self.send_redirect(msg)
-            return
-
-        # Append entry to local log
-        key = msg['key']
-        value = msg['value']
-        entry = {
-            'command': 'put',
-            'src': msg['src'],
-            'MID': msg['MID'],
-            'key': key,
-            'value': value,
-            'term': self.current_term
-        }
-        self.log.append(entry)
-        self.info('{} {}.put ACCEPTED'.format(msg['MID'], msg['src']))
-        self.broadcast_append_entries()
-
-    @dispatch.add('get')
-    def handle_get(self, msg):
-        """Handles a get request from the client"""
         if self.state == State.LEADER:
-            # Respond with the value if it exists
-            self.send_ok(msg, value=self.datastore.get(msg['key'], ''))
-        elif self.leader == 'FFFF':
-            self.failed.add('{}.get'.format(msg['src']))
-            self.send_fail(msg)
+            for e in self.committed_entries:
+                if e['MID'] == msg['MID']:
+                    self.send_ok(msg, value=self.get(e['key']))
+                    break
+            else:
+                # Append entry to local log
+                key = msg['key']
+                value = msg.get('value', '')
+                entry = {
+                    'command': msg['type'],
+                    'src': msg['src'],
+                    'MID': msg['MID'],
+                    'key': key,
+                    'value': value,
+                    'term': self.current_term
+                }
+                self.log.append(entry)
+                self.info('{} {}.{} ACCEPTED'.format(msg['MID'], msg['src'], msg['type']))
+                self.broadcast_append_entries()
+        # Send fail if leader unknown
         else:
-            self.info('{}.get redirected to {}'.format(msg['src'], self.leader))
-            self.send_redirect(msg)
+            self.fail_or_redirect[msg['MID']] = msg
 
     def apply(self, entries):
         """Commits the entries to the state machine"""
         for e in entries:
             if e['command'] == 'put':
-                self.datastore[e['key']] = e['value']
+                self.put(e['key'], e['value'])
 
     # ------------------------ END OF CLIENT INTERFACE ------------------------
 
@@ -567,6 +575,23 @@ class Server(LoggingMixin):
         """Runs the main loop"""
         while True:
             time = current_time()
+            
+            fail_or_redirect_span = time - self.fail_or_redirect_timer
+            if self.state == State.LEADER:
+                if self.fail_or_redirect:
+                    for msg in self.fail_or_redirect.values():
+                        self.dispatch(msg['type'], msg) 
+                self.fail_or_redirect = {}
+            elif self.leader != 'FFFF':
+                for msg in self.fail_or_redirect.values():
+                    self.send_redirect(msg) 
+                self.fail_or_redirect = {}
+            elif fail_or_redirect_span >= HEARTBEAT_FREQ:
+                self.fail_or_redirect_timer = time
+                for msg in self.fail_or_redirect.values():
+                    self.send_fail(msg) 
+                self.fail_or_redirect = {}
+
             # Leaders send empty AppendEntries RPCs (heartbeats) to each 
             # server during idle periods to prevent election timeouts
             if self.state == State.LEADER:
@@ -576,6 +601,10 @@ class Server(LoggingMixin):
                     self.broadcast_heartbeat()
                     # Reset the heartbeat timer
                     self.prev_heartbeat = time
+                if self.fail_or_redirect:
+                    for msg in self.fail_or_redirect.values():
+                        self.dispatch(msg['type'], msg) 
+                self.fail_or_redirect = {}
 
             # Election timeout met, so start election
             if self.check_timeout():

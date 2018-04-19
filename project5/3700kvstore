@@ -138,15 +138,37 @@ class Server(LoggingMixin):
     @property
     def last_log_idx(self):
         return len(self.log) - 1
-        
+    
+    @property
+    def first_uncommitted_idx(self):
+        return self.commit_idx + 1
+
+    @property
+    def uncomitted_entries(self):
+        return self.log[self.first_uncommmitted_idx:]
+
+    @property
+    def n(self):
+        return len(self.replicas) + 1
+
     @property
     def quorum(self):
-        return len(self.replicas) // 2 + 1
+        return self.n // 2 + 1
     
     def transition_to_state(self, state, msg=None, term=None):
         prev_state = self.state
         prev_term = self.current_term
         with self.accumulate_logs() as bypass_log:
+            # We don't want to have dangling clients waiting on our
+            # leader if the leader transitions away from leading
+            if self.state == State.LEADER:
+                if self.uncomitted_entries:
+                    labels = ['{}.{}'.format(e['src'], e['command'])
+                            for e in self.uncomitted_entries]
+                    self.debug('Leaving leader state, sending Fail to {}'.format(labels))
+                    for e in self.uncomitted_entries:
+                        self.send_fail_entry(e)
+
             if state == State.LEADER:
                 self.debug('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
@@ -244,6 +266,12 @@ class Server(LoggingMixin):
     def send_fail(self, msg):
         """Sends a fail message back to the source"""
         self.reply(msg, type='fail')
+
+    def send_ok_entry(self, entry):
+        self.send_ok({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
+
+    def send_fail_entry(self, entry):
+        self.send_fail({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
 
     @myutils.FunctionDispatcher.decorate
     def dispatch(self, key, *args, **kwargs):
@@ -433,8 +461,10 @@ class Server(LoggingMixin):
                     # set commitIndex = N
                     self.commit_idx = committed_idx
                     entry = self.log[self.commit_idx]
-                    self.send_ok({'dst': self.id, 'src': entry['src'],
-                            'MID': entry['MID']})
+                    # Don't send OK to PUT/GET from an old term, when that leader
+                    # was reliquished it sent a fail and the client retried
+                    if entry['term'] == self.current_term:
+                        self.send_ok_entry(entry)
             # If AppendEntries fails because of log inconsistency:
             # decrement nextIndex and retry
             elif msg['type'] == 'fail':

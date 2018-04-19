@@ -17,7 +17,7 @@ import myutils
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768 # maximum bytes to read in from the socket
-HEARTBEAT_FREQ = 0.1 # seconds, or 100 milliseconds
+HEARTBEAT_FREQ = 0.06 # seconds, or 100 milliseconds
 
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
@@ -39,6 +39,7 @@ class SimulatorSocket:
     def __init__(self, lan):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.sock.connect(lan)
+        self.peer_shutdown = False
 
         self.poll = select.poll()
         self.poll.register(self.sock.fileno(), select.POLLIN)
@@ -47,8 +48,11 @@ class SimulatorSocket:
         """Returns the data from the socket as a deserialized JSON object"""
         if self.poll.poll(timeout):
             msg_raw = self.sock.recv(MAX_BYTES)
-            msg = json.loads(bytes.decode(msg_raw)) if len(msg_raw) != 0 else {}
-            return msg
+            if len(msg_raw) == 0:
+                self.peer_shutdown = True
+                return {}
+            else:
+                return json.loads(bytes.decode(msg_raw))
         else:
             return None
 
@@ -72,6 +76,9 @@ class LoggingMixin:
         else:
             logfunc(msg)
 
+    def warning(self, string):
+        self._logfunc_or_enque(logging.warning, string)
+
     def info(self, string):
         self._logfunc_or_enque(logging.info, string)
 
@@ -81,6 +88,9 @@ class LoggingMixin:
     class BypassProxy:
         def __init__(self, instance):
             self.instance = instance
+
+        def info(self, string):
+            logging.warning(self.instance._logfmt(string))
 
         def info(self, string):
             logging.info(self.instance._logfmt(string))
@@ -135,6 +145,10 @@ class Server(LoggingMixin):
         self.failed = set() #Just for logging
         self.fail_or_redirect = {}
         self.fail_or_redirect_timer = 0
+        # We need to wait until the next commit after a GET is recieved to
+        # return a response, to confirm we are still the leader
+        self.idx_get_list = []
+        self.idx_get_list_timer = 0
         self.transition_to_state(State.FOLLOWER)
 
     @property
@@ -177,6 +191,9 @@ class Server(LoggingMixin):
 
     def put(self, key, value):
         self.datastore[key] = value
+
+    def append_empty(self):
+        self.log.append({'command': None, 'MID': 'NO_OP', 'term': self.current_term})
    
     ##
     # State Machine behavior
@@ -192,13 +209,17 @@ class Server(LoggingMixin):
             if self.state == State.LEADER and state != State.LEADER:
                 if self.uncommitted_entries:
                     labels = ['{}.{}'.format(e['src'], e['command'])
-                        for e in self.uncommitted_entries]
+                        for e in self.uncommitted_entries if e['command'] is not None]
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))
                     for e in self.uncommitted_entries:
-                        self.send_fail_entry(e)
+                        if e['command'] is not None:
+                            self.send_fail_entry(e)
+                    for idx, get_msg in self.idx_get_list:
+                        self.send_fail(get_msg)
+                    self.idx_get_list = []
 
             if state == State.LEADER:
-                self.debug('Voted for by {}'.format(str(list(self.votes))))
+                self.info('Voted for by {}'.format(str(list(self.votes))))
                 # Re-initialize any necessary fields
                 self.state = State.LEADER
                 self.leader = self.id
@@ -358,7 +379,7 @@ class Server(LoggingMixin):
         """Handles a RequestVote RPC from a candidate"""
         def reject(hint=''):
             self.info('Rejecting {}.request_vote ({})'.format(msg['src'], hint))
-            self.reply(msg, type='response_vote', value='false')
+            self.reply(msg, type='response_vote', value=False)
 
         # Reply false if term < currentTerm
         if msg['term'] < self.current_term:
@@ -446,7 +467,7 @@ class Server(LoggingMixin):
         # If server receives request with stale term number,
         # it rejects the request
         if msg['term'] < self.current_term:
-            reject('term {}<{}'.format(self.current_term, msg['term']))
+            reject('term {}<{}'.format(msg['term'], self.current_term))
         # If leader's term is equal to or greater than server's term, 
         # then leader had to have been properly elected and, therefore,
         # is safe to follow
@@ -498,23 +519,33 @@ class Server(LoggingMixin):
                 ordered_matches = list(sorted(self.match_idx.values()))
                 new_commit_idx = ordered_matches[-(self.n // 2)] # Note order of operations matters, -5 // 2 is -3 not -2
                 if self.commit_idx < new_commit_idx and self.log[new_commit_idx]['term'] == self.current_term:
-                    self.info('Committing entry {}'.format(self.commit_idx))
+                    self.info('Committing entry {}'.format(new_commit_idx))
                     # If there exists an N such that N > commitIndex, a majority
                     # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
                     # set commitIndex = N
                     entries = self.log[self.commit_idx+1: new_commit_idx + 1]
                     self.commit_idx = new_commit_idx
- 
+                    self.apply_committed() 
+
                     for entry in entries:
                         # Don't send OK to PUT/GET from an old term, when that leader
                         # was reliquished it sent a fail and the client retried
                         if entry['term'] == self.current_term:
                             if entry['command'] == 'put':
                                 self.send_ok_entry(entry)
-                            elif entry['command'] == 'get':
-                                self.send_ok_entry(entry, value=self.get(entry['key']))
+                            elif entry['command'] is None:
+                                pass
                             else:
                                 raise 1
+                    
+                    self.info(str(self.idx_get_list))
+                    remove = set()
+                    for i, (idx, get_msg) in enumerate(self.idx_get_list):
+                        if idx <= new_commit_idx:
+                            self.send_ok(get_msg, value=self.get(get_msg['key']))
+                            remove.add(i)
+                    self.idx_get_list = [v for i, v in enumerate(self.idx_get_list) if i not in remove]
+                            
             # If AppendEntries fails because of log inconsistency:
             # decrement nextIndex and retry
             elif msg['type'] == 'fail':
@@ -556,7 +587,12 @@ class Server(LoggingMixin):
                     self.info('{} {}.{} ACCEPTED'.format(msg['MID'], msg['src'], msg['type']))
                     self.broadcast_append_entries()
             else:
-                self.send_ok(msg, value=self.get(msg['key']))
+                self.idx_get_list.append( (self.commit_idx, msg) )
+                # If we have no outstanding entries, send out a no-op to give the gets
+                # something to trigger off of
+                if self.commit_idx == self.last_log_idx:
+                    self.append_empty()
+                    self.broadcast_append_entries() 
         # Send fail if leader unknown
         else:
             self.fail_or_redirect[msg['MID']] = msg
@@ -584,6 +620,14 @@ class Server(LoggingMixin):
             for msg in self.fail_or_redirect.values():
                 self.send_fail(msg) 
             self.fail_or_redirect = {}
+    
+    def manage_gets(self, time):
+        span = time - self.idx_get_list_timer
+        if span >= HEARTBEAT_FREQ * 5:
+            for idx, msg in self.idx_get_list:
+                self.send_fail(msg)
+            self.idx_get_list = []
+            self.idx_get_list_timer = time
 
     def manage_heartbeat(self, time):
             span = time - self.prev_heartbeat
@@ -601,7 +645,7 @@ class Server(LoggingMixin):
                 self.transition_to_state(State.CANDIDATE)
                 self.send_request_vote()
 
-    def apply_comitted(self):
+    def apply_committed(self):
         # If commitIndex > lastApplied: increment lastApplied, 
         # apply log[lastApplied] to state machine
         if self.commit_idx > self.last_applied:
@@ -610,7 +654,7 @@ class Server(LoggingMixin):
                            self.commit_idx))
             else:
                    self.info('Applying {}'.format(self.commit_idx))
-            self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
+            self.apply(self.log[self.last_applied + 1 : self.commit_idx + 1])
             self.last_applied = self.commit_idx
         
     def manage_msg_recv(self, msg):
@@ -626,13 +670,14 @@ class Server(LoggingMixin):
 
     def run(self):
         """Runs the main loop"""
-        while True:
+        while not self.sock.peer_shutdown:
             time = current_time()
             self.manage_fail_or_redirect(time)
+            self.manage_gets(time)
 
             self.manage_heartbeat(time)
             self.manage_timeout()
-            self.apply_comitted()
+            self.apply_committed()
 
             msg = self.sock.recv(timeout=0.05)
             if msg:

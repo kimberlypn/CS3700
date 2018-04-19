@@ -145,7 +145,7 @@ class Server(LoggingMixin):
 
     @property
     def uncomitted_entries(self):
-        return self.log[self.first_uncommmitted_idx:]
+        return self.log[self.first_uncommitted_idx:]
 
     @property
     def n(self):
@@ -268,9 +268,11 @@ class Server(LoggingMixin):
         self.reply(msg, type='fail')
 
     def send_ok_entry(self, entry):
+        self.info('Sending {}.{}=ok'.format(entry['src'], entry['command']))
         self.send_ok({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
 
     def send_fail_entry(self, entry):
+        self.info('Sending {}.{}=fail'.format(entry['src'], entry['command']))
         self.send_fail({'dst': self.id, 'src': entry['src'], 'MID': entry['MID']})
 
     @myutils.FunctionDispatcher.decorate

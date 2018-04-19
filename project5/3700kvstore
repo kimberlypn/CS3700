@@ -166,10 +166,14 @@ class Server(LoggingMixin):
             elif state == State.FOLLOWER:
                 if self.failed:
                     bypass_log.info('Failed {}'.format(self.failed))
-                self.state = State.FOLLOWER
                 if msg:
                     self.leader = msg['leader']
                     self.current_term = msg['term']
+                # If was previously a leader, send replies for any
+                # outstanding requests
+                if self.state == State.LEADER:
+                    self.handle_outstanding()
+                self.state = State.FOLLOWER
                 self.votes = set()
                 self.failed = set()
                 self.voted_for = None
@@ -194,7 +198,28 @@ class Server(LoggingMixin):
             if self.state != prev_state or self.current_term != prev_term:
                 bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
 
-
+    def handle_outstanding(self):
+        """
+        Sends a redirect or fail to the client for 
+        any outstanding requests
+        """
+        for log in self.log:
+            if 'success' in log and not log['success']:
+                # Leader unknown, so send fail
+                if self.leader == 'FFFF':
+                    self.send_fail({
+                        'dst': self.id, 
+                        'src': log['src'], 
+                        'MID': log['MID']
+                    })
+                # Leader known, so redirect to new leader
+                else:
+                    self.send_redirect({
+                        'dst': self.id, 
+                        'src': log['src'], 
+                        'MID': log['MID']
+                    })
+  
     def check_timeout(self):
         """Determines if an election needs to take place"""
         time = current_time()

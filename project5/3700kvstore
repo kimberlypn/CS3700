@@ -173,7 +173,7 @@ class Server(LoggingMixin):
             # We don't want to have dangling clients waiting on our
             # leader if the leader transitions away from leading
             if self.state == State.LEADER and state != State.LEADER:
-                if self.uncomitted_entries:
+                if self.uncommitted_entries:
                     labels = ['{}.{}'.format(e['src'], e['command'])
                         for e in self.uncommitted_entries]
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))

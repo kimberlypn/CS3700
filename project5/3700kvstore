@@ -455,7 +455,7 @@ class Server(LoggingMixin):
                 # From this replicas persective, the message was already ready to
                 # be comitted, so only need N//2 confirmations. Therfore the second
                 # highest index is the one to mark comitted
-                committed_idx = list(sorted(self.match_idx.values()))[-self.quorum // 2]
+                committed_idx = list(sorted(self.match_idx.values()))[-(self.quorum - 1)]
                 if self.commit_idx < committed_idx:
                     self.info('Committing entry {}'.format(self.commit_idx))
                     # If there exists an N such that N > commitIndex, a majority

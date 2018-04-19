@@ -148,7 +148,7 @@ class Server(LoggingMixin):
         return self.commit_idx + 1
 
     @property
-    def uncomitted_entries(self):
+    def uncommitted_entries(self):
         return self.log[self.first_uncommitted_idx:]
 
     @property
@@ -166,11 +166,11 @@ class Server(LoggingMixin):
             # We don't want to have dangling clients waiting on our
             # leader if the leader transitions away from leading
             if self.state == State.LEADER:
-                if self.uncomitted_entries:
+                if self.uncommitted_entries:
                     labels = ['{}.{}'.format(e['src'], e['command'])
-                            for e in self.uncomitted_entries]
+                            for e in self.uncommitted_entries]
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))
-                    for e in self.uncomitted_entries:
+                    for e in self.uncommitted_entries:
                         self.send_fail_entry(e)
 
             if state == State.LEADER:

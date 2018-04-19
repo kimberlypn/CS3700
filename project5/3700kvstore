@@ -337,7 +337,7 @@ class Server(LoggingMixin):
                     self.voted_for = msg['src']
                     self.info('Term {} Voted for {}'.format(self.current_term,
                             self.voted_for))
-                    self.reply(msg, type='response_vote', value='true')
+                    self.reply(msg, type='response_vote', value=True)
                     self.reset_timeouts()
                 else:
                     reject('already voted this term')
@@ -347,7 +347,7 @@ class Server(LoggingMixin):
     @dispatch.add('response_vote')
     def handle_received_vote(self, msg):
         """Handles a received vote during an election"""
-        if msg['value'] == 'true':
+        if msg['value']:
             self.votes.add(msg['src'])
             # If votes received from majority of servers: become leader
             if len(self.votes) >= self.quorum:
@@ -452,15 +452,16 @@ class Server(LoggingMixin):
             if msg['type'] == 'ok':
                 self.match_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])
                 self.next_idx[msg['src']] = self.match_idx[msg['src']] + 1
-                # given N replicas, N/2 + 1 form a quorum. If you sort the current
+                # Given N replicas, N/2 + 1 form a quorum. If you sort the current
                 # index each is on, the N//2 + 1'th index (middle index) is the one
                 # which brings something into the majorty and commits it
                 #
-                # From this replicas persective, the message was already ready to
-                # be comitted, so only need N//2 confirmations. Therfore the second
+                # From this replica's persective, the message was already ready to
+                # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
-                committed_idx = list(sorted(self.match_idx.values()))[-self.n//2]
-                if self.commit_idx < committed_idx:
+                committed_idx = list(sorted(self.match_idx.values()))[-self.n // 2]
+                if (self.commit_idx < committed_idx and 
+                    self.log[committed_idx]['term'] == self.current_term):
                     self.info('Committing entry {}'.format(self.commit_idx))
                     # If there exists an N such that N > commitIndex, a majority
                     # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
@@ -533,6 +534,8 @@ class Server(LoggingMixin):
             if e['command'] == 'put':
                 self.datastore[e['key']] = e['value']
 
+    # ------------------------ END OF CLIENT INTERFACE ------------------------
+
     def run(self):
         """Runs the main loop"""
         while True:
@@ -560,7 +563,7 @@ class Server(LoggingMixin):
                             self.commit_idx))
                 else:
                     self.info('Applying {}'.format(self.commit_idx))
-                self.apply(self.log[self.last_applied+1:self.commit_idx + 1])
+                self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
                 self.last_applied = self.commit_idx
 
             msg = self.sock.recv(timeout=0.05)

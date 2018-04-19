@@ -210,7 +210,7 @@ class Server(LoggingMixin):
                     # For each server, index of highest log entry known to be 
                     # replicated on server (initialized to 0, increases monotonically)
                     self.match_idx[replica] = 0
-                self.broadcast_heartbeat()
+                self.broadcast_append_entries()
                 
             elif state == State.FOLLOWER:
                 if self.failed:
@@ -326,13 +326,6 @@ class Server(LoggingMixin):
     def dispatch(self, key, *args, **kwargs):
         pass
 
-    def broadcast_heartbeat(self):
-        """Sends a heartbeat to all of the replicas"""
-        for replica in self.replicas:
-            self.send_append_entries(replica, 
-                    prev_log_idx=self.last_log_idx, 
-                    prev_log_term=self.last_log_term)
-
     # --------------------------- REQUEST VOTES RPC ---------------------------
 
     def send_request_vote(self):
@@ -438,6 +431,7 @@ class Server(LoggingMixin):
         """Sends an AppendEntries RPC to all replicas"""
         for replica in self.replicas:
             self.try_append_entries(replica)
+        self.prev_heartbeat = current_time()
         
     @dispatch.add('append_entries')
     def handle_append_entries(self, msg):
@@ -538,27 +532,30 @@ class Server(LoggingMixin):
     @dispatch.add('put')
     @dispatch.add('get')
     def handle_put(self, msg):
-        """Handles a put request from the client"""
+        """Handles a get/put request from the client"""
         if self.state == State.LEADER:
-            for e in self.committed_entries:
-                if e['MID'] == msg['MID']:
-                    self.send_ok(msg, value=self.get(e['key']))
-                    break
+            if msg['type'] == 'put':    
+                for e in self.committed_entries:
+                    if e['MID'] == msg['MID']:
+                        self.send_ok(msg, value=self.get(e['key']))
+                        break
+                else:
+                    # Append entry to local log
+                    key = msg['key']
+                    value = msg.get('value', '')
+                    entry = {
+                        'command': msg['type'],
+                        'src': msg['src'],
+                        'MID': msg['MID'],
+                        'key': key,
+                        'value': value,
+                        'term': self.current_term
+                    }
+                    self.log.append(entry)
+                    self.info('{} {}.{} ACCEPTED'.format(msg['MID'], msg['src'], msg['type']))
+                    self.broadcast_append_entries()
             else:
-                # Append entry to local log
-                key = msg['key']
-                value = msg.get('value', '')
-                entry = {
-                    'command': msg['type'],
-                    'src': msg['src'],
-                    'MID': msg['MID'],
-                    'key': key,
-                    'value': value,
-                    'term': self.current_term
-                }
-                self.log.append(entry)
-                self.info('{} {}.{} ACCEPTED'.format(msg['MID'], msg['src'], msg['type']))
-                self.broadcast_append_entries()
+                self.send_ok(msg, value=self.get(msg['key']))
         # Send fail if leader unknown
         else:
             self.fail_or_redirect[msg['MID']] = msg
@@ -598,7 +595,7 @@ class Server(LoggingMixin):
                 span = time - self.prev_heartbeat
                 if span >= HEARTBEAT_FREQ:
                     self.debug('Sent Heartbeat')
-                    self.broadcast_heartbeat()
+                    self.broadcast_append_entries()
                     # Reset the heartbeat timer
                     self.prev_heartbeat = time
                 if self.fail_or_redirect:

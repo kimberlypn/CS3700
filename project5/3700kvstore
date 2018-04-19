@@ -481,18 +481,24 @@ class Server(LoggingMixin):
             'key': key,
             'value': value,
             'term': self.current_term,
+            # True if an 'ok' response has been sent to the client
             'success': False
         }
         self.log.append(entry)
         self.broadcast_append_entries()
 
     def set_entry_ok(self, MID):
+        """Marks the given request as fulfilled"""
         for log in self.log:
             if 'MID' in log and log['MID'] == MID:
                 log['success'] = True
                 break
 
     def check_entry_ok(self, MID):
+        """
+        Determines whether or not an 'ok' has been sent
+        to the client for the given request
+        """   
         for log in self.log:
             if 'MID' in log and log['MID'] == MID:
                 return log['success']

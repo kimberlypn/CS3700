@@ -106,7 +106,7 @@ trials.append(run_test('test_config/partition-2.json', 'No drops, 2 easy partiti
                        PACKETS_LOW, REPLICAS, MAYFAIL_LOW, 1.4, LATENCY_LOW))
 trials.append(run_test('test_config/partition-3.json', 'No drops, 1 hard partition, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_HIGH))
-trials.append(run_test('partition-4.json', 'No drops, 2 hard partitions, 20% read',
+trials.append(run_test('test_config/partition-4.json', 'No drops, 2 hard partitions, 20% read',
                        PACKETS_LOW, REPLICAS, MAYFAIL_HIGH, 1.5, LATENCY_HIGH))
 
 ldr = open(LEADERBOARD_OUTPUT + getpass.getuser(), 'w')

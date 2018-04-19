@@ -495,8 +495,9 @@ class Server(LoggingMixin):
                 # From this replica's persective, the message was already ready to
                 # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
-                new_commit_idx = list(sorted(self.match_idx.values()))[-self.n // 2]
-                if self.commit_idx < new_commit_idx:
+                ordered_matches = list(sorted(self.match_idx.values()))
+                new_commit_idx = ordered_matches[-(self.n // 2)] # Note order of operations matters, -5 // 2 is -3 not -2
+                if self.commit_idx < new_commit_idx and self.log[new_commit_idx]['term'] == self.current_term:
                     self.info('Committing entry {}'.format(self.commit_idx))
                     # If there exists an N such that N > commitIndex, a majority
                     # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
@@ -568,68 +569,74 @@ class Server(LoggingMixin):
 
     # ------------------------ END OF CLIENT INTERFACE ------------------------
 
+    def manage_fail_or_redirect(self, time):
+        fail_or_redirect_span = time - self.fail_or_redirect_timer
+        if self.state == State.LEADER:
+            for msg in self.fail_or_redirect.values():
+                self.dispatch(msg['type'], msg) 
+            self.fail_or_redirect = {}
+        elif self.leader != 'FFFF':
+            for msg in self.fail_or_redirect.values():
+                self.send_redirect(msg) 
+            self.fail_or_redirect = {}
+        elif fail_or_redirect_span >= HEARTBEAT_FREQ:
+            self.fail_or_redirect_timer = time
+            for msg in self.fail_or_redirect.values():
+                self.send_fail(msg) 
+            self.fail_or_redirect = {}
+
+    def manage_heartbeat(self, time):
+            span = time - self.prev_heartbeat
+            # Leaders send empty AppendEntries RPCs (heartbeats) to each 
+            # server during idle periods to prevent election timeouts
+            if self.state == State.LEADER and span >= HEARTBEAT_FREQ:
+                self.debug('Sent Heartbeat')
+                self.broadcast_append_entries()
+                # Reset the heartbeat timer
+                self.prev_heartbeat = time
+
+    def manage_timeout(self):
+            # Election timeout met, so start election
+            if self.state != State.LEADER and  self.check_timeout():
+                self.transition_to_state(State.CANDIDATE)
+                self.send_request_vote()
+
+    def apply_comitted(self):
+        # If commitIndex > lastApplied: increment lastApplied, 
+        # apply log[lastApplied] to state machine
+        if self.commit_idx > self.last_applied:
+            if self.commit_idx - self.last_applied > 1:
+                   self.info('Applying [{}, {}]'.format(self.last_applied + 1,
+                           self.commit_idx))
+            else:
+                   self.info('Applying {}'.format(self.commit_idx))
+            self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
+            self.last_applied = self.commit_idx
+        
+    def manage_msg_recv(self, msg):
+            self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+            # If RPC request or response contains term T > currentTerm: 
+            # set currentTerm = T, convert to follower 
+            if 'term' in msg and self.current_term < msg['term']:
+                self.info('Reverting to FOLLOWER, Term {}.{} from {}'
+                    .format(msg['term'], msg['type'], msg['src']))
+                self.transition_to_state(State.FOLLOWER, msg)
+                self.reset_timeouts()
+            self.dispatch(msg['type'], msg)
+
     def run(self):
         """Runs the main loop"""
         while True:
             time = current_time()
-            
-            fail_or_redirect_span = time - self.fail_or_redirect_timer
-            if self.state == State.LEADER:
-                if self.fail_or_redirect:
-                    for msg in self.fail_or_redirect.values():
-                        self.dispatch(msg['type'], msg) 
-                self.fail_or_redirect = {}
-            elif self.leader != 'FFFF':
-                for msg in self.fail_or_redirect.values():
-                    self.send_redirect(msg) 
-                self.fail_or_redirect = {}
-            elif fail_or_redirect_span >= HEARTBEAT_FREQ:
-                self.fail_or_redirect_timer = time
-                for msg in self.fail_or_redirect.values():
-                    self.send_fail(msg) 
-                self.fail_or_redirect = {}
+            self.manage_fail_or_redirect(time)
 
-            # Leaders send empty AppendEntries RPCs (heartbeats) to each 
-            # server during idle periods to prevent election timeouts
-            if self.state == State.LEADER:
-                span = time - self.prev_heartbeat
-                if span >= HEARTBEAT_FREQ:
-                    self.debug('Sent Heartbeat')
-                    self.broadcast_append_entries()
-                    # Reset the heartbeat timer
-                    self.prev_heartbeat = time
-                if self.fail_or_redirect:
-                    for msg in self.fail_or_redirect.values():
-                        self.dispatch(msg['type'], msg) 
-                self.fail_or_redirect = {}
-
-            # Election timeout met, so start election
-            if self.check_timeout():
-                self.transition_to_state(State.CANDIDATE)
-                self.send_request_vote()
-
-            # If commitIndex > lastApplied: increment lastApplied, 
-            # apply log[lastApplied] to state machine
-            if self.commit_idx > self.last_applied:
-                if self.commit_idx - self.last_applied > 1:
-                    self.info('Applying [{}, {}]'.format(self.last_applied + 1,
-                            self.commit_idx))
-                else:
-                    self.info('Applying {}'.format(self.commit_idx))
-                self.apply(self.log[self.last_applied + 1:self.commit_idx + 1])
-                self.last_applied = self.commit_idx
+            self.manage_heartbeat(time)
+            self.manage_timeout()
+            self.apply_comitted()
 
             msg = self.sock.recv(timeout=0.05)
             if msg:
-                self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
-                # If RPC request or response contains term T > currentTerm: 
-                # set currentTerm = T, convert to follower 
-                if 'term' in msg and self.current_term < msg['term']:
-                    self.info('Reverting to FOLLOWER, Term {}.{} from {}'
-                        .format(msg['term'], msg['type'], msg['src']))
-                    self.transition_to_state(State.FOLLOWER, msg)
-                    self.reset_timeouts()
-                self.dispatch(msg['type'], msg)
+                self.manage_msg_recv(msg)
 
 
 if __name__ == '__main__':

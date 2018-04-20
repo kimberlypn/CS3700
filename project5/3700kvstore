@@ -17,8 +17,11 @@ import myutils
 # ----------------------------- GLOBAL VARIABLES -----------------------------
 
 MAX_BYTES = 32768 # maximum bytes to read in from the socket
-HEARTBEAT_FREQ = 0.2 # seconds, or 100 milliseconds
+HEARTBEAT_FREQ = 0.125 # seconds, or 100 milliseconds
 SEND_FREQ = 0.025 # 25 milliseconds
+ELECTION_FREQ = (0.05, 0.1) # 50-100 milliseconds
+FOLLOWER_FREQ = (0.25, 0.4) # 250-400 milliseconds
+
 # ------------------------- END OF GLOBALS VARIABLES -------------------------
 
 def current_time():
@@ -126,7 +129,6 @@ class Server(LoggingMixin):
         self.replicas = replicas 
         self.sock = SimulatorSocket(self.id)
         self.datastore = {} # state machine containing all key-value pairs
-        self.reset_timeouts()
 
         # ---------------------- PERSISTENT STATE (ALL) -----------------------
         self.current_term = 0 # latest term server has seen
@@ -151,6 +153,7 @@ class Server(LoggingMixin):
         # We need to wait until the next commit after a GET is recieved to
         # return a response, to confirm we are still the leader
         self.idx_get_list = []
+        self.reset_timeouts()
         self.transition_to_state(State.FOLLOWER)
 
         # Rather than clobbering peers with messages, queue them up for a bit as leader
@@ -218,8 +221,10 @@ class Server(LoggingMixin):
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))
                     for e in self.uncommitted_entries:
                         if e['command'] is not None:
+                            self.info('Failing Uncommitted entry {} {}.{}'.format(e['MID'], e['src'], e['command']))
                             self.send_fail_entry(e)
                     for e in self.idx_get_list:
+                        self.info('Failing Unconfirmed {} {}.get'.format(e.msg['MID'], e.msg['src'], e.msg['type']))
                         self.send_fail(e.msg)
                     self.idx_get_list = []
 
@@ -245,6 +250,8 @@ class Server(LoggingMixin):
                 if msg:
                     self.leader = msg['leader']
                     self.current_term = msg['term']
+                else:
+                    self.leader = 'FFFF'
                 self.votes = set()
                 self.failed = set()
                 self.voted_for = None
@@ -280,7 +287,10 @@ class Server(LoggingMixin):
 
     def reset_timeouts(self):
         """Resets the election and leader timeouts"""
-        self.election_timeout = random.uniform(0.45, 0.6)
+        if self.leader == 'FFFF':
+             self.election_timeout = random.uniform(*ELECTION_FREQ)
+        else:
+             self.election_timeout = random.uniform(*FOLLOWER_FREQ)
         self.prev_timeout = current_time()
 
 
@@ -636,11 +646,13 @@ class Server(LoggingMixin):
             self.fail_or_redirect = {}
         elif self.leader != 'FFFF':
             for msg in self.fail_or_redirect.values():
+                self.info('Redirecting {} {}.{} to {}'.format(msg['MID'], msg['src'], msg['type'], self.leader))
                 self.send_redirect(msg) 
             self.fail_or_redirect = {}
-        elif fail_or_redirect_span >= HEARTBEAT_FREQ:
+        elif fail_or_redirect_span >= HEARTBEAT_FREQ*5:
             self.fail_or_redirect_timer = time
             for msg in self.fail_or_redirect.values():
+                self.info('Failing {} {}.{}'.format(msg['MID'], msg['src'], msg['type']))
                 self.send_fail(msg) 
             self.fail_or_redirect = {}
     
@@ -648,6 +660,7 @@ class Server(LoggingMixin):
         remove = set()
         for i, e in enumerate(self.idx_get_list):
             if (time - e.time) > HEARTBEAT_FREQ * 3:
+                self.info('Failing stale {} {}.{}'.format(e.msg['MID'], e.msg['src'], e.msg['type']))
                 self.send_fail(e.msg)
                 remove.add(i)
         

@@ -1,0 +1,364 @@
+#!/usr/bin/python3 -u
+# The -u makes output unbuffered, so it will show up immediately
+import argparse
+import json
+import socket
+import select
+import time
+import threading
+
+BROADCAST_FREQ = 0.5  # seconds, or 500 milliseconds
+BPDU_TIMEOUT = 0.75  # seconds, or 750 milliseconds
+TABLE_ENTRY_TIMEOUT = 5  # seconds
+MAX_BYTES = 1500
+
+
+class Port:
+    """
+    Reasons to keep a port enabled:
+    A. You receive no BPDUs on that port
+        - Indicates there are no other bridges
+    B. The port is a root port
+        - You need to be able to forward packets to the root of the spanning tree
+    C. You are the designated bridge for that LAN
+        - All other bridges on that LAN have a longer path to the root, or their
+          bridge ID is higher than yours
+    """
+    def __init__(self, id, bid):
+        self.id = id  # zero-indexed port ID
+        self.mac = int_to_hex(hex_to_int(bid) + id + 1)  # MAC address
+        self.is_enabled = True  # true if this port is open
+        self.is_designated = False  # true if this port is the designated port for the bridge
+    
+    def reset_all(self):
+        self.is_enabled = True
+        self.is_designated = False
+
+
+class Bridge:
+    def __init__(self, bid, lans):
+        self.bid = bid  # ID of this bridge
+        self.root = bid  # bridge with the lowest BID in the tree
+        self.designated_bid = bid  # id of the bridge used to get to root
+        self.cost = 0  # cost (in hops) from this bridge to the root
+        self.root_port = 0  # port that forwards to the root
+        self.fwd_table = {}  # forwarding table (map of host id to port and timestamp)
+        self.neighbors = {}  # maps neighboring bridges to timestamp indicating last bpdu received
+        self.neighbor_lock = threading.Lock()
+
+        self.sockets = self.__create_sockets(lans)  # sockets that the ports are connected to
+        self.ports = self.__get_ports()  # dictionary mapping sockets to ports
+
+        # Print starting message after initializing
+        print('Bridge {id} starting up'.format(id=self.bid))
+
+        # Announce bridge to neighbors and broadcast BPDUs on an interval
+        threading.Thread(target=self.broadcast).start()
+
+    def __create_sockets(self, lans):
+        """Creates a socket for each LAN that this bridge is connected to"""
+        sockets = []
+        for x in range(len(lans)):
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            s.connect(pad(lans[x]))
+            sockets.append(s)
+        return sockets
+
+    def __get_ports(self):
+        """
+        Return a dict mapping socket instances to Port instances with zero-indexed ids
+        """
+        ports = {}
+        for i, sock in enumerate(self.sockets):
+            ports[sock] = Port(i, self.bid)
+        return ports
+
+    def send_bpdu(self):
+        """Returns a correctly formatted BPDU message"""
+        for s in self.sockets:
+            port = self.ports[s]
+            # Send out the message on each port
+            msg = {
+                'root': self.root,
+                'cost': self.cost,
+                'id': self.bid,
+                'designated_bid': self.designated_bid
+            }
+            bpdu = format_packet(port.mac, 'ffff', 'bpdu', msg)
+            send_packet(s, bpdu)
+
+    def broadcast(self):
+        while True:
+            self.send_bpdu()
+            time.sleep(BROADCAST_FREQ)
+
+    def drop_neighbor(self, port):
+        """
+        Returns a callback that will either reset the bridge (because a root or
+        designated port has not received a BPDU), or enable the port because
+        it's not hearing any BPDUs and it isn't root or designated
+        """
+        def drop():
+            with self.neighbor_lock:
+                if self.root_port == port.id or port.is_designated:
+                    self.reset_all()
+                elif port in self.neighbors:
+                    port.is_enabled = True  # no longer hearing BPDUs from this port, so enable it
+                    self.neighbors.pop(port).cancel()
+        return drop
+
+    def process_packet(self, packet, port):
+        """
+        Determines if the packet is a data or BPDU message and processes it accordingly
+        """
+        if packet['type'] == 'bpdu':
+            # This helps with debugging BPDUs
+            # print('Port {port} received packet: {packet}'.format(port=port.id, packet=packet))
+            self.process_bpdu(packet, port)
+        elif packet['type'] == 'data':
+            self.process_data(packet, port)
+
+    def process_bpdu(self, packet, port):
+        """Processes a BPDU message"""
+        src_mac = packet['source']
+        msg = packet['message']
+        new_root = msg['root']
+        new_cost = msg['cost']
+        new_bid = msg['id']
+        new_designated_bid = msg['designated_bid']
+
+        with self.neighbor_lock:
+            if port in self.neighbors:
+                self.neighbors[port].cancel()
+            self.neighbors[port] = threading.Timer(BPDU_TIMEOUT, self.drop_neighbor(port))
+            self.neighbors[port].start()
+
+        # new_cost + 1 to account for hop from current bridge to source bridge
+        updated = self.update_root(new_root, new_cost + 1, new_bid)
+
+        if updated:
+            self.update_root_port(port)
+            # Root was updated in one way or another, so reset all the ports
+            for port in self.ports.values():
+                port.reset_all()
+            # Broadcast a BPDU informing neighbors of the updated root
+            self.send_bpdu()
+            return
+        elif self.root_port == port.id:
+            return
+
+        # Checks if there is a loop and this port received a BPDU sent from another port
+        # from this bridge
+        if (self.bid == new_bid and port.mac > src_mac):
+            self.disable_port(port)
+
+        # If all other bridges on the LAN have a longer path to the root or their bid is
+        # higher than this bridge, this is a designated port
+        elif (not port.is_designated and 
+                port.is_enabled and
+                (self.cost < new_cost or self.bid < new_bid)):
+            self.designate_port(port)
+
+        # If there were no updates, this is not the root port or a designated port, disable it
+        elif (self.root == new_root and
+                ((self.cost >= new_cost and self.bid > new_bid) or 
+                    (self.cost > new_cost and self.bid != new_designated_bid))):
+            self.disable_port(port)
+
+    def update_root(self, root, cost, bid):
+        """Returns boolean indicating whether the root was updated or not"""
+        if root < self.root:
+            print('New root {id}/{root}'.format(id=self.bid, root=root))
+            self.root = root
+            self.cost = cost
+            self.designated_bid = bid
+            return True
+        elif ((root == self.root and cost < self.cost) or
+                (root == self.root and cost == self.cost and bid < self.designated_bid)):
+            self.root = root
+            self.cost = cost
+            self.designated_bid = bid
+            return True
+        else:
+            return False
+
+    def update_root_port(self, port):
+        """
+        Marks the port as the root port, if it's not already
+        """
+        if self.root_port != port.id:
+            print('Root port: {id}/{port_id}'.format(id=self.bid, port_id=port.id))
+            self.enable_port(port)
+            self.root_port = port.id
+
+    def designate_port(self, port):
+        """
+        Marks the port as designated, if it's not already
+        """
+        if not port.is_designated:
+            print('Designated port: {id}/{port_id}'.format(id=self.bid, port_id=port.id))
+            port.is_designated = True
+            self.flush_ft()
+
+    def disable_port(self, port):
+        """
+        Disables the given port, if it's not already disabled
+        """
+        if port.is_enabled:
+            print('Disabled port: {id}/{port_id}'.format(id=self.bid, port_id=port.id))
+            port.is_enabled = False
+            self.flush_ft()
+
+    def enable_port(self, port):
+        """
+        Enables the given port, if it's not already enabled
+        """
+        if not port.is_enabled:
+            port.is_enabled = True
+            self.flush_ft()
+
+    def process_data(self, packet, port):
+        """Processes a data message"""
+        if not port.is_enabled:
+            return
+
+        print('Received message {id} on port {port_id} from {src} to {dest}'.format(
+            id=packet['message']['id'], port_id=port.id, src=packet['source'], dest=packet['dest']))
+
+        src = packet['source']
+        dest = packet['dest']
+
+        # Map the source to the given port
+        self.fwd_table[src] = (port, current_time())
+
+        # Don't send the packet again if the destination is the same as the source or there is only
+        # one port (and thus would be sending it straight back where it was received)
+        if (src == dest or
+                len(self.ports) < 2 or
+                (dest in self.fwd_table and self.fwd_table[dest][0].id == self.fwd_table[src][0].id)):
+            print('Not forwarding message {id}'.format(id=packet['message']['id']))
+            return
+
+        if dest in self.fwd_table:
+            dest_port, prev_update = self.fwd_table[dest]
+            if not dest_port.is_enabled or current_time() - prev_update >= TABLE_ENTRY_TIMEOUT:
+                # This forwarding table entry is stale
+                self.fwd_table.pop(dest)
+            else:
+                dest_socks = filter(lambda s: self.ports[s].id == dest_port.id, self.sockets)
+                print('Forwarding message {id} to port {port_id}'.format(
+                    id=packet['message']['id'], port_id=dest_port.id))
+                send_packet(next(dest_socks), packet)
+                return
+
+        print('Broadcasting message {id} to all ports'.format(id=packet['message']['id']))
+        for s in self.sockets:
+            p = self.ports[s]
+            if p.is_enabled and p.id != port.id:
+                send_packet(s, packet)
+
+    def flush_ft(self):
+        """Flush the forwarding table"""
+        self.fwd_table = {}
+
+    def reset_all(self):
+        """
+        Resets all values back to the default
+        """
+        self.root = self.bid
+        self.designated_bid = self.bid
+        self.cost = 0
+        self.root_port = 0
+        self.fwd_table = {}
+        self.neighbors = {}
+
+        for port in self.ports.values():
+            port.reset_all()
+
+
+def current_time():
+    """Returns the current time in seconds"""
+    return time.time()
+
+
+def hex_to_int(s):
+    """Converts a hexadecimal string to an int"""
+    return int(s, 16)
+
+
+def int_to_hex(i):
+    """Converts an int to hexadecimal"""
+    # hex(1) returns value as '0x1', so strip the '0x'
+    val = hex(i)[2:]
+
+    # pad it to four characters
+    zero_buffer = '0' * (4 - len(val))
+    return zero_buffer + val
+
+
+def pad(name):
+    """Pads the name with null bytes at the end"""
+    result = '\0' + name
+    while len(result) < 108:
+        result += '\0'
+    return result
+
+
+def format_packet(src, dest, type, msg):
+    """
+    - <src> and <dest> are either bridge or end host addresses
+    - all addresses are four-byte hexadecimal numbers (e.g., 98a2), and a
+      special broadcast address ffff indicates the packet should be received
+      by all hosts and bridges
+    - <type> is either 'bpdu' for BPDUs or 'data' for end-host data packets
+    """
+    return {'source': src, 'dest': dest, 'type': type, 'message': msg}
+
+
+def send_packet(sock, packet):
+    """Send an encoded JSON object through the socket"""
+    sock.send(str.encode(json.dumps(packet)))
+
+
+def recv_packet(sock):
+    """
+    Receive data from the given socket, convert bytes to string, and return
+    deserialized JSON object
+    """
+    data = sock.recv(MAX_BYTES)
+    return json.loads(bytes.decode(data)) if len(data) != 0 else {}
+
+
+def run(bridge):
+    """
+    Begin the bridge sending/receiving functionality
+    """
+    # Main packet receiving loop
+    while True:
+        # Calls select with all the sockets; change the timeout value (1)
+        ready, unused_ignore, unused_ignore2 = select.select(
+            bridge.sockets, [], [], 0.5)
+
+        # Reads from each of the ready sockets
+        for sock in ready:
+            packet = recv_packet(sock)
+            if packet:
+                port = bridge.ports[sock]
+                bridge.process_packet(packet, port)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Network bridge.',
+                                     add_help=False)
+    parser.add_argument('id',
+                        help='ID of the bridge (four-digit hexadecimal number)')
+    parser.add_argument('LAN',
+                        nargs='+',
+                        help='unique name of the LAN(s) the bridge should connect to')
+    args = parser.parse_args()
+
+    # Create the bridge using the arguments passed
+    bridge = Bridge(args.id, args.LAN)
+
+    # Start the program
+    run(bridge)

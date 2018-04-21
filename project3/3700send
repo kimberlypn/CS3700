@@ -1,0 +1,289 @@
+#!/usr/bin/python3 -u
+# CS3700, Spring 2018
+import json
+import math
+import select
+import socket
+import sys
+import random
+
+from utils import current_time, log, wrap_sequence
+
+# ----------------------------- GLOBAL VARIABLES -----------------------------
+
+# Maximum transmission unit (MTU)
+MSG_SIZE = 1500
+# Maximum size of data we can send in a packet (excludes header information)
+DATA_SIZE = 1200
+# Round trip time, unknown at start
+RTT = None
+# Retransmission timeout, initialized to 30 seconds
+RTO = 30
+# Current sequence number
+SEQUENCE = random.randrange(0, 2**32-1)
+# Maps expected ACK to loaded packets (have not been sent yet)
+LOADED = {}
+# Maps expected ACK to buffered packets
+SENT = {}
+# Number of duplicate ACKs we have received
+DUP_ACKS = 0
+# Congestion window, initialized to 1
+CWND = 1
+# Slow start threshold, initialized to 4
+SSTHRESH = 4
+# Flag indicating if we've read all the data
+END_OF_FILE = False
+
+# --------------------------- END GLOBALS VARIABLES ---------------------------
+
+
+def sock_send(msg_info):
+    """Sends a packet to a destination"""
+    msg_template = {
+        'sequence': SEQUENCE,
+        'data': None,
+        'syn': False,
+        'ack': False,
+        'eof': False
+    }
+    # Override template with supplied values
+    msg = dict(msg_template, **msg_info)
+    # Prepare the packet
+    packet = str.encode(json.dumps(msg))
+    # Check for errors
+    if sock.sendto(packet, dest) < len(packet):
+        log('[error] unable to fully send packet')
+    else:
+        length = len(msg['data']) if msg['data'] else 0
+        log('[send data] {sequence} ({length})'.format(
+            sequence=msg['sequence'],
+            length=length
+        ))
+
+
+def send_packets():
+    """Sends as many data packets as possible"""
+    global LOADED
+    global SENT
+
+    for idx, seq_num in enumerate(sorted(LOADED)):
+        if idx < CWND and len(SENT) < CWND:
+            msg = LOADED.pop(seq_num)
+            msg['timestamp'] = current_time()
+            msg['timeout'] = msg['timestamp'] + RTO
+            SENT[seq_num] = msg
+            sock_send(msg)
+        else:
+            return
+
+
+def load_packets():
+    """Read as much data into LOADED as the CWND allows"""
+    global END_OF_FILE
+    global SEQUENCE
+    global LOADED
+
+    if END_OF_FILE:
+        # No sense in reading anything
+        return
+
+    for unused_i in range(int(math.floor(CWND) - len(LOADED))):
+        # Read the data
+        data = sys.stdin.read(DATA_SIZE)
+
+        if (len(data) > 0):
+            # Set the EOF flag if there is no more data to send
+            END_OF_FILE = len(data) < DATA_SIZE
+            msg = {'sequence': SEQUENCE, 'data': data, 'eof': END_OF_FILE}
+            # Increment the sequence number
+            SEQUENCE = wrap_sequence(SEQUENCE, data)
+            # Save the packet to be sent later
+            LOADED[SEQUENCE] = msg
+        else:
+            # TODO this may be a bug, but didn't want to do LOADED[SEQUENCE] = msg since it would
+            # clash with another packet stored there
+            msg = {'eof': True}
+            sock_send(msg)
+            END_OF_FILE = True
+        if END_OF_FILE:
+            break
+
+
+def handshake():
+    """Three way handshake with receiver to establish connection"""
+    global SEQUENCE
+    syn_packet = {'syn': True}
+    sock_send(syn_packet)
+
+    # Calls select with the UDP socket with a low timeout
+    ready, unused_ignore, unused_ignore2 = select.select([sock], [], [], 2.5)
+
+    if ready:
+        result = sock.recvfrom(MSG_SIZE)
+        if result:
+            (data, unused_addr) = result
+            try:
+                decoded = json.loads(bytes.decode(data))
+                ack_sequence = wrap_sequence(SEQUENCE + 1)
+
+                # The ACK is expected to send the sequence number incremented by 1
+                if decoded.get('syn') is not None and decoded.get('ack') == ack_sequence:
+                    SEQUENCE = ack_sequence
+                    log('[recv syn/ack] {syn}/{ack}'.format(
+                        syn=decoded['syn'],
+                        ack=decoded['ack']
+                    ))
+
+                    ack_packet = {'syn': True, 'ack': decoded['syn'] + 1}
+                    sock_send(ack_packet)
+                    return True
+                else:
+                    log('[error] syn/ack did not match expectation {syn}/{ack}'.format(
+                        syn=decoded.get('syn'),
+                        ack=decoded.get('ack')
+                    ))
+                    return False
+            except (ValueError, KeyError, TypeError):
+                log('[recv corrupt packet during handshake]')
+        else:
+            log('[error] timeout during handshake')
+            return False
+
+
+def reset_sent():
+    """Dump the SENT packets back into LOADED"""
+    global SENT
+    global LOADED
+    LOADED.update(SENT)
+    SENT = {}
+
+
+def handle_timeout():
+    """Handle a timeout (using multiplicative decrease)"""
+    global CWND
+    global SSTHRESH
+    log('[timeout] resending packets')
+    SSTHRESH = CWND / 2
+    CWND = 1
+    # If we're timing out, then RTT is worsening
+    calculate_rtt(current_time() - RTO)
+
+    # Resend packets
+    reset_sent()
+    send_packets()
+
+
+def calculate_rtt(timestamp):
+    """Sets the new RTT and RTO"""
+    global RTT
+    global RTO
+    # Calculate the sample
+    sample = current_time() - timestamp
+    # Calculate the new RTT as a moving average, using the
+    # recommended alpha of 0.875
+    alpha = 0.875
+    RTT = (alpha * RTT) + ((1 - alpha) * sample)
+    RTO = max(2 * RTT, 0.5)
+    log('[update RTO] {timeout}'.format(timeout=RTO))
+
+
+def grow_cwnd():
+    """Grows the congestion window accordingly"""
+    global CWND
+    # Slow start
+    if (CWND < SSTHRESH):
+        CWND += 1
+    # Congestion avoidance
+    else:
+        CWND += 1 / CWND
+
+
+def fast_retransmit():
+    """Retransmits in-flight packets"""
+    global CWND
+    log('[fast retransmit] resending packets')
+    # Resend the packets
+    reset_sent()
+    send_packets()
+    # Fast recovery; avoid unnecessary return to slow start
+    CWND = SSTHRESH / 2
+
+
+def handle_ack(packet):
+    """Handles what happens when an ACK is received"""
+    global SENT
+    global DUP_ACKS
+    ack = packet['ack']
+    # If an ACK was received for an in-flight packet
+    if (ack in SENT):
+        log('[recv ack] {ack}'.format(ack=ack))
+        # Reset DUP_ACKs since we got a valid ACK
+        DUP_ACKS = 0
+        # Remove the ACK'd packet from SENT
+        sent_packet = SENT.pop(ack)
+        # Update the RTT
+        calculate_rtt(sent_packet['timestamp'])
+        # Grow the congestion window
+        grow_cwnd()
+        return True
+    elif packet.get('syn'):
+        # Could have received delayed handshake packets; just ignore them
+        return False
+    # We got an ACK for something that has already been ACKed
+    else:
+        DUP_ACKS += 1
+        if DUP_ACKS == 3:
+            DUP_ACKS = 0
+            fast_retransmit()
+        return False
+
+
+if __name__ == '__main__':
+    # Bind to localhost and an ephemeral port
+    IP_PORT = sys.argv[1]
+    UDP_IP = IP_PORT[0:IP_PORT.find(':')]
+    UDP_PORT = int(IP_PORT[IP_PORT.find(':') + 1:])
+    dest = (UDP_IP, UDP_PORT)
+
+    # Set up the socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(RTO)
+
+    # Initiate three way handshake and estimate RTT based on handshake duration
+    handshake_start = current_time()
+    while not handshake():
+        continue
+    RTT = current_time() - handshake_start
+    RTO = max(2 * RTT, 0.5)
+
+    # Now read in data, send packets
+    while True:
+        # Load and send as many packets as possible
+        load_packets()
+        send_packets()
+
+        log('ABOUT TO SLEEP')
+
+        # Calls select with the UDP socket
+        ready, unused_ignore, unused_ignore2 = select.select([sock], [], [], RTO)
+
+        if ready:
+            result = sock.recvfrom(MSG_SIZE)
+            if result:
+                (data, addr) = result
+                try:
+                    decoded = json.loads(bytes.decode(data))
+
+                    # Send the next packet if an ACK for an in-flight packet was received
+                    if handle_ack(decoded):
+                        # Try to send next packet; exit if no more data
+                        if END_OF_FILE and not len(SENT) and not len(LOADED):
+                            log('[completed]')
+                            sys.exit(0)
+                except (ValueError, KeyError, TypeError) as err:
+                    log('[recv corrupt packet] error: {error}'.format(error=err))
+            else:
+                log('[error] timeout')
+                sys.exit(-1)
+        else:
+            handle_timeout()

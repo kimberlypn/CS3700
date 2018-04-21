@@ -1,0 +1,22 @@
+This program was written in Python.
+
+First, the program stores the arguments passed by the client. Next, the 
+program connects to the server using a TCP socket or an encrypted SSL socket, 
+depending on whether a -s flag was specified, with the stored arguments. The 
+program then sends the initial HELLO message to the server. The program parses 
+and solves the returned STATUS messages until a message without "STATUS" is 
+received, at which point the program parses the BYE message and returns the 
+secret key. The program validates the format of each message received by the 
+server and returns an error if the format is incorrect. The program also 
+returns an error if the number of arguments passed is invalid or if the 
+program fails to connect to the server.
+
+This was my first time writing a full program in Python, so one challenge was 
+just learning how to code in Python. Other challenges that I had were creating 
+the Makefile and writing regex expressions to validate the messages received.
+
+I tested my code by using print statements. For example, I printed the 
+client's arguments to make sure that I was grabbing the correct values from 
+sys_args. I also printed the messages received from the server and the answers 
+that my program was returning to check that everything was correct. 
+Additionally, I tested functions using the interactive console.

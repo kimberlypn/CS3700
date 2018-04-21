@@ -1,0 +1,73 @@
+Team: kpnguyen-wongbre
+
+## High-level approach:
+In the main function in the sender, we first bind to the receiver's port and 
+set up the socket with an initial RTO of 30 seconds. The sequence number for 
+the sender and the receiver is a 32-bit number that wraps and is chosen at 
+random. The sender initiates the three-way handshake by sending a SYN message, 
+and the handshake completes once the sequence numbers have been synced. We use 
+the duration of the handshake to estimate and initialize the RTT. In the 
+main loop, the sender loads as many packets as the congestion window (CWND) 
+will allow and sends each packet, building a SEND dictionary that maps the 
+expected ACK to the message. As ACKs are received, we check if it corresponds 
+to that of any packets in SEND. If yes, we update the RTT and RTO using a 
+moving average and grow the CWND according to slow start or congestion 
+avoidance. If three duplicate ACKs have been received, we enter fast 
+retransmission, where we resend as many packets as the CWND will allow and 
+set CWND to SSTHRESH/2 to avoid an unnecessary return to slow start. We tear 
+down the connection once the EOF flag has been set, and there are no more 
+packets left to send.
+
+In the receiver, we first set up the socket and handle the handshake. Once 
+that is done, as packets are received, we determine if the packet is in order, 
+out of order, or a duplicate. In any case, we ACK the packet since we chose to 
+implement selective ACKs. However, if the packet is out of order, we add it to 
+a BUFFERED dictionary. If the packet is in order, we update the receiver's 
+global ACK_SEQUENCE and print the data. Then, we check if any of the BUFFERED 
+data can be printed as well and update the ACK_SEQUENCE if so. We tear down the 
+connection once the EOF flag has been set, and there are no more BUFFERED packets.
+
+## Challenges:
+One challenge that we ran into was deciding what features to implement. For 
+example, we had to implement multiple ways of tearing down the connection until 
+we found one that gracefully passed the tests. We had to keep playing around with 
+different features--either by implementing existing TCP features or implementing 
+ideas that were inspired by existing feature--until we found a combination 
+that worked best.
+
+Another challenge that we ran into was figuring out when to check for timeouts 
+and when to retransmit. We noticed that we were sending a lot of duplicate 
+packets, so we had to walk through the logic several times to determine where 
+we were retransmitting unnecessarily and make changes as needed. 
+
+Lastly, we ran into issues with testing, especially when Gordon was overloaded. 
+We ran into inconsistencies when testing, where a test might pass on one run but 
+fail the next, even when no code had been changed. There were also times when 
+we could not tell if our tests were failing due to some hole in our logic or 
+because Gordon was overloaded. We had to adjust the timeout as necessary to deal 
+with the overload (though, this did not always work) and run tests until we were 
+certain that our results were deterministic.
+
+We will stress the issues with Gordon. We used a slip day to wrap up our 
+project and hoped that Gordon would not be so overloaded by people cramming to 
+finish on the Friday it was due. However, it was unusable 95% of the time. We 
+spent the entire day trying to get code to run, but most of the time, the 
+receiver would not get anything from the sender, regardless of the network 
+configuration or the code used. We even tried the starter code, since we knew 
+for sure that that would pass the basic tests. But during our slip day, it would 
+just time out constantly. This forced us to essentially code blind, and we had 
+very little validation if our changes improved our program.
+
+## Testing:
+We tested by manually running any tests that were failing so that we could debug 
+via the logs. We also utilized PRs so that we could review each other's code 
+and catch any bugs that one of us might have missed.
+
+## Contributions:
+Kimberly: implemented congestion control, timeout-checking, sampling for the 
+RTT, and logic for handling ACKs in the sender and wrote the README
+
+Brendon: implemented three-way handshake, selective ACKs/buffering, logic 
+for handling ACKs in the receiver, tear-down, sequence-number wrapping
+
+We also used PRs to review each other's code and built off of each other's ideas.

@@ -1,0 +1,40 @@
+Team: kpnguyen-wongbre
+
+## High-level approach:
+We created Port and Bridge classes. When the program starts, a Bridge is 
+created and initialized with the id and LAN(s) that were passed. Bridge and 
+Port are related via a ports field on Bridge, which is a dictionary that maps 
+sockets to Ports. As packets are received on the sockets, process_packet() 
+checks whether the packet is of type BPDU or data and passes the packet to 
+process_bpdu() or process_data(), respectively. process_bpdu() handles the 
+logic for building the spanning tree, while process_data() handles the logic 
+for building the forwarding table. There is a thread running in a loop in the 
+background that handles all BPDU broadcasting/timeout/spanning tree 
+reconstruction logic. This allows us to determine bridge freshness without 
+being blocked by the call to select().
+
+
+## Challenges:
+One of the biggest challenges that we ran into was figuring out how to 
+disable the ports appropriately to avoid loops. We were able to overcome this 
+issue by creating a MAC address for each Port, which is what the source gets 
+populated with whenever a BPDU is sent out. When this change allowed one test 
+to pass, another would fail for some other reason related to the disabling of 
+ports. We had to walk through our port disabling logic several times, 
+determining if there were any other information we could include in the BPDU 
+to help us and if we needed to reenable any ports. 
+
+Another challenge we faced was that we would get inconsistent results, where 
+a test would pass on the first run but fail on subsequent runs, even though the 
+code did not change in between. We realized that this just meant that there was 
+some logic that we were missing that did not allow us to pass all possible 
+scenarios of a single test case. So, we would keep tweaking our code until we 
+could be sure that the test results were deterministic.  
+
+
+## Testing:
+We added additional print statements throughout our code to help debug. We also 
+ran each of the configs one-by-one so that we could analyze what was happening. 
+Another strategy we had was to modify the configs and change the number of 
+packets sent to 1 so that we could clearly see whether or not the spanning tree 
+was being constructed correctly.

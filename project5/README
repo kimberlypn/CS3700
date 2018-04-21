@@ -66,7 +66,7 @@ on ensuring that we were implementing Raft correctly.
 Kimberly: created the SimulatorSocket class to handle socket connection and 
 sending/receiving messages, created initial implmentation that handled the 
 election process, executing and responding to client requests, and AppendEntries 
-RPCs/heartbeats between the leader and its followers
+RPCs/heartbeats between the leader and its followers, wrote the README
 
 Tristan: created the debugging infrastructure/modified the test script, revamped 
 the initial implementation and added the missing Raft details, which included the 

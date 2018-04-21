@@ -534,7 +534,7 @@ class Server(LoggingMixin):
 
     @dispatch.add('ok')
     @dispatch.add('fail')
-    def handle_appened_entries_resp(self, msg):
+    def handle_append_entries_resp(self, msg):
         if self.state == State.LEADER:
             if msg['type'] == 'ok':
                 self.match_idx[msg['src']] = msg['prev_log_idx'] + len(msg['entries'])

@@ -1,0 +1,123 @@
+#!/usr/bin/env python
+import socket
+import sys
+import re
+import ssl
+
+# Represents a Server to which the client wants to connect
+class Server:
+    def __init__(self, port, hostname, neu_id, ssl_flag):
+        self.port = port
+        self.hostname = hostname
+        self.neu_id = neu_id
+        self.ssl_flag = ssl_flag
+
+# Returns a Server object with the fields specified by the client
+def get_args():   
+    # Save the arguments given by the client
+    args = len(sys.argv)
+    # Specified p and s flags
+    if args == 6:
+        port = int(sys.argv[2])
+        hostname = sys.argv[4]
+        neu_id = sys.argv[5]
+        ssl_flag = True
+    # Specified p flag only
+    elif args == 5:
+        port = int(sys.argv[2])
+        hostname = sys.argv[3]
+        neu_id = sys.argv[4]
+        ssl_flag = False
+    # Specified s flag only
+    elif args == 4:
+        port = 27999
+        hostname = sys.argv[2]
+        neu_id = sys.argv[3]
+        ssl_flag = True
+    # No p or s flag
+    elif args == 3:
+        port = 27998
+        hostname = sys.argv[1]
+        neu_id = sys.argv[2]
+        ssl_flag = False
+    # Else return an error message and end the program
+    else:
+        print("Incorrect number of arguments. Please use the format: ./client <-p port> <-s> [hostname] [NEU ID]")
+        sys.exit()
+    
+    return Server(port, hostname, neu_id, ssl_flag)
+
+# Returns a socket connected to the given server
+def connect(server):
+    # Create a TCP socket connection to the server
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = (server.hostname, server.port)
+        # Use an encrypted SSL socket if applicable
+        if server.ssl_flag:
+            ssl_socket = ssl.wrap_socket(sock)
+            ssl_socket.connect(s)
+            sock = ssl_socket
+        else:
+            sock.connect(s)
+    # Print error message if connection fails and end the program
+    except Exception as e:
+        print("Failed to connect to the server. %s" % e)
+        sys.exit()
+
+    return sock
+
+# Receives a server and a socket and executes the protocol;
+# the server is needed for the neu_id
+def main(server, sock):
+    try:
+        # Send HELLO message to the server once socket is connected
+        sock.sendall("cs3700spring2018 HELLO " + server.neu_id + "\n")
+        # Get the response
+        response = sock.recv(256)
+    
+        # Regex patterns for the two possible server responses
+        status_pattern = re.compile("^cs3700spring2018 STATUS ([1-9][0-9]{0,2}|1000) (\+|\-|/|\*) ([1-9][0-9]{0,2}|1000)$\n")
+        bye_pattern = re.compile("^cs3700spring2018 .* BYE\n")
+    
+        # Keep solving mathematical expressions until the server says BYE
+        while "STATUS" in response:
+            # If the format of the STATUS message is valid
+            if status_pattern.match(response) is not None:
+                # Extract the mathematical expression from the response
+                expr = response.partition("STATUS ")[2].rstrip()
+                # Solve the mathematical expression, rounding down to the nearest int
+                answer = eval(expr) 
+                # Send the answer back
+                sock.sendall("cs3700spring2018 " + str(answer) + "\n")
+                # Get the next response
+                response = sock.recv(256)
+            # Else return an error message, close the socket, and end the program
+            else:
+                print("Invalid STATUS message format. Received \'" + response + "\'.")
+                sock.close()
+                sys.exit()
+                
+        # If the format of the BYE message is valid
+        if bye_pattern.match(response) is not None:
+            # Print the secret flag
+            pattern = re.compile("\\b(cs3700spring2018|BYE)\\W", re.I)
+            secret_flag = pattern.sub("", response)
+            print(secret_flag)
+        # Else return an error message, close the socket, and end the program
+        else:
+            print("Invalid BYE message format. Received \'" + response + "\'.")
+            sock.close()
+            sys.exit()
+    
+    finally:
+        # Close the socket
+        sock.close()
+
+if __name__ == "__main__":
+    # Create the server
+    server = get_args()
+    # Connect a socket to the server
+    sock = connect(server)
+    # Execute the protocol
+    main(server, sock)

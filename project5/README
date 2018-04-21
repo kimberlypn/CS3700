@@ -1,9 +1,78 @@
 Team: kpnguyen-sweeneyt
 
 ## High-level approach: 
+We have a SimulatorSocket class which handles creating a socket and sending and 
+receiving messages. We have a LoggingMixin class to manage logs for debugging. 
+Our Server class is what implements the Raft protocol. It has all of the fields 
+mentioned in the paper, along with some additional fields that we added to handle 
+additional things such as pending requests during leader switches. In the main 
+loop, we first check if we need to handle any messages that were not responded 
+to because the leader was unknown at the time. Next, we send fails for any get 
+requests that have timed out. Then, we retry AppendEntry RPCs to any replicas 
+that have timed out. We also send a heartbeat if we are the leader and the 
+heartbeat timeout has passed. We have a function apply_committed() which 
+commits multiple entries to the state machine if the commit index is greater 
+than the index that was last applied. 
+
+As messages are received, we pass them to a dispatch() function which handles 
+them accordingly. However, we first transition to the follower state if the 
+term is stale and reset any timeouts. We use an enum to represent the three 
+possible states that a server can be in. send() ensures that any message sent 
+has the four required fields. send_redirect(), send_ok(), and send_fail() 
+handle replies to the message source, which includes the client. 
+send_request_vote(), handle_request_vote(), and handle_received_vote() are the 
+main functions that handle the voting process in accordance with the Raft 
+protocol. send_append_entries(), handle_append_entries(), and 
+handle_append_entries_resp() are the main functions that handle communication 
+between the leader and its followers regarding AppendEntries RPCs. handle_put() 
+handles both put and get requests from the client.
 
 ## Challenges:
+One challenge we faced was that we were sending too many messages, which caused 
+some of the tests to fail. We believe that the main issue was during the 
+election process, where the leader was unknown, so we would send fails to the 
+client, which would keep hammering the servers with retries until a leader was 
+elected. We resolved this issue by adding messages received during this time to 
+a fail_or_redirect array to be handled later. We also motified the test script 
+so that we could run the tests with a flag that the script to ignore any "too 
+many messages" error so that we could first ensure that our Raft logic was 
+correct. 
+
+Another challenge that we faced was responding incorrectly to outstanding client 
+requests. Originally, when a server was transitioning out of the leader state, 
+any outstanding client requests were answered incorrectly because the client was 
+expecting a response from the previous leader. We resolved this by making sure 
+to respond to any outstanding requests before switching out of the leader state. 
+
+A third challenge was that we were originally not handling the part of Raft that 
+says that "only log entries from the leader's current term are committed by 
+counting replicas" and how entries from previous terms are indirectly committed 
+once the leader has committed an entry from its term. Because we missed this 
+detail, our log was not entirely correct. However, once we added logic to handle 
+this case, the tests passed. 
 
 ## Testing:
+We built a debugging infrasture that logs messages at key points throughout our 
+program so that we could walkthrough what was happening. Examples of some things 
+we logged are a server's previous and new state and term upon transitioning and 
+what entries were being committed. Even more helpful is that a logs get generated 
+per server, so they are very readable. 
+
+We also modified the test script to add additional stats and to allow us to run 
+the script to bypass checks such as "too many messages" so that we could focus 
+on ensuring that we were implementing Raft correctly. 
 
 ## Contributions:
+Kimberly: created the SimulatorSocket class to handle socket connection and 
+sending/receiving messages, created initial implmentation that handled the 
+election process, executing and responding to client requests, and AppendEntries 
+RPCs/heartbeats between the leader and its followers, wrote the README
+
+Tristan: created the debugging infrastructure/modified the test script, revamped 
+the initial implementation and added the missing Raft details, which included the 
+logic for correctly appending log entries, efficiently responding to client requests 
+during the election process, handling uncommitted entries during leader changes, 
+and retrying AppendEntries RPCs for replicas that have not replied
+
+We also pair-programmed at one point and utilized PRs to review and give feedback 
+on each other's work.

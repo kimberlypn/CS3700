@@ -147,7 +147,7 @@ class Server(LoggingMixin):
 
         self.state = None
         self.leader = 'FFFF'
-        self.failed = set() #Just for logging
+        self.failed = set() # just for logging
         self.fail_or_redirect = {}
         self.fail_or_redirect_timer = 0
         # We need to wait until the next commit after a GET is recieved to
@@ -203,10 +203,8 @@ class Server(LoggingMixin):
     def append_empty(self):
         self.log.append({'command': None, 'MID': 'NO_OP', 'term': self.current_term})
    
-    ##
-    # State Machine behavior
-    ##
- 
+    #------------------------- STATE MACHINE BEHAVIOR -------------------------
+
     def transition_to_state(self, state, msg=None, term=None):
         """Handles what happens when transitioning from one state to another"""
         prev_state = self.state
@@ -221,10 +219,12 @@ class Server(LoggingMixin):
                     self.debug('Leaving leader state, sending Fail to {}'.format(labels))
                     for e in self.uncommitted_entries:
                         if e['command'] is not None:
-                            self.info('Failing Uncommitted entry {} {}.{}'.format(e['MID'], e['src'], e['command']))
+                            self.info('Failing Uncommitted entry {} {}.{}'
+                                .format(e['MID'], e['src'], e['command']))
                             self.send_fail_entry(e)
                     for e in self.idx_get_list:
-                        self.info('Failing Unconfirmed {} {}.get'.format(e.msg['MID'], e.msg['src'], e.msg['type']))
+                        self.info('Failing Unconfirmed {} {}.get'
+                            .format(e.msg['MID'], e.msg['src'], e.msg['type']))
                         self.send_fail(e.msg)
                     self.idx_get_list = []
 
@@ -275,6 +275,8 @@ class Server(LoggingMixin):
 
             if self.state != prev_state or self.current_term != prev_term:
                 bypass_log.info('<- {}::{}'.format(prev_state, prev_term))
+
+    #---------------------- END OF STATE MACHINE BEHAVIOR ---------------------
 
     def check_timeout(self):
         """Determines if an election needs to take place"""
@@ -470,8 +472,10 @@ class Server(LoggingMixin):
         self.prev_heartbeat = current_time()
     
     def find_term_first_idx(self, index):
-        '''Finds the first index in the term which index falls in (or the hightst
-           index of the latest term if index > self.last_log_idx) '''
+        """
+        Finds the first index in the term which index falls in (or the hightst
+        index of the latest term if index > self.last_log_idx)
+        """
         if index > self.last_log_idx:
             return self.last_log_idx
         else:
@@ -543,8 +547,11 @@ class Server(LoggingMixin):
                 # be comitted, so only need N//2 confirmations. Therefore, the second
                 # highest index is the one to mark comitted
                 ordered_matches = list(sorted(self.match_idx.values()))
-                new_commit_idx = ordered_matches[-(self.n // 2)] # Note order of operations matters, -5 // 2 is -3 not -2
-                if self.commit_idx < new_commit_idx and self.log[new_commit_idx]['term'] == self.current_term:
+                # Note order of operations matters, -5 // 2 is -3 not -2
+                new_commit_idx = ordered_matches[-(self.n // 2)]
+
+                if (self.commit_idx < new_commit_idx and 
+                    self.log[new_commit_idx]['term'] == self.current_term):
                     self.info('Committing entry {}'.format(new_commit_idx))
                     # If there exists an N such that N > commitIndex, a majority
                     # of matchIndex[i] ≥ N, and log[N].term == currentTerm: 
@@ -575,9 +582,11 @@ class Server(LoggingMixin):
             # If AppendEntries fails because of log inconsistency:
             # decrement nextIndex and retry
             elif msg['type'] == 'fail':
-                # do the sped-up logic of stepping back by terms, but never step back in history
+                # Do the sped-up logic of stepping back by terms, 
+                # but never step back in history
                 if 'term_first_idx' in msg:
-                    self.next_idx[msg['src']] = max(msg['term_first_idx'], self.match_idx[msg['src']])
+                    self.next_idx[msg['src']] = max(msg['term_first_idx'], 
+                        self.match_idx[msg['src']])
                 else:
                     self.next_idx[msg['src']] = max(1, self.next_idx[msg['src']] - 1)
 
@@ -594,7 +603,8 @@ class Server(LoggingMixin):
     @dispatch.add('put')
     @dispatch.add('get')
     def handle_put(self, msg):
-        """Handles a get/put request from the client
+        """
+        Handles a get/put request from the client
 
         Rather than broadcasting after appending entries, the server's main
         loop will send to replicas an append entries ever 25 milliseconds
@@ -639,17 +649,22 @@ class Server(LoggingMixin):
     # ------------------------ END OF CLIENT INTERFACE ------------------------
 
     def manage_fail_or_redirect(self, time):
+        """Handles any outstanding requests"""
         fail_or_redirect_span = time - self.fail_or_redirect_timer
+        # If leader, respond to put/get requests
         if self.state == State.LEADER:
             for msg in self.fail_or_redirect.values():
                 self.dispatch(msg['type'], msg) 
             self.fail_or_redirect = {}
+        # If not the leader, redirect to the known leader
         elif self.leader != 'FFFF':
             for msg in self.fail_or_redirect.values():
-                self.info('Redirecting {} {}.{} to {}'.format(msg['MID'], msg['src'], msg['type'], self.leader))
+                self.info('Redirecting {} {}.{} to {}'
+                    .format(msg['MID'], msg['src'], msg['type'], self.leader))
                 self.send_redirect(msg) 
             self.fail_or_redirect = {}
-        elif fail_or_redirect_span >= HEARTBEAT_FREQ*5:
+        # Send fail if leader has not been determined after timeout
+        elif fail_or_redirect_span >= HEARTBEAT_FREQ * 5:
             self.fail_or_redirect_timer = time
             for msg in self.fail_or_redirect.values():
                 self.info('Failing {} {}.{}'.format(msg['MID'], msg['src'], msg['type']))
@@ -657,16 +672,19 @@ class Server(LoggingMixin):
             self.fail_or_redirect = {}
     
     def manage_gets(self, time):
+        """Sends a fail response to any gets that have timed out"""
         remove = set()
         for i, e in enumerate(self.idx_get_list):
             if (time - e.time) > HEARTBEAT_FREQ * 3:
-                self.info('Failing stale {} {}.{}'.format(e.msg['MID'], e.msg['src'], e.msg['type']))
+                self.info('Failing stale {} {}.{}'
+                    .format(e.msg['MID'], e.msg['src'], e.msg['type']))
                 self.send_fail(e.msg)
                 remove.add(i)
         
         self.idx_get_list = [e for i, e in enumerate(self.idx_get_list) if i not in remove]
 
     def manage_append_entries(self, time):
+        """Retries AppendEntries RPCs to any replicas that have timed out"""
         if self.state == State.LEADER:
             for replica in self.replicas:
                 span = time - self.append_entries_clocks[replica]
@@ -675,6 +693,7 @@ class Server(LoggingMixin):
                     self.try_append_entries(replica) 
                 
     def manage_heartbeat(self, time):
+        """Sends a heartbeat"""
         span = time - self.prev_heartbeat
         # Leaders send empty AppendEntries RPCs (heartbeats) to each 
         # server during idle periods to prevent election timeouts
@@ -685,12 +704,13 @@ class Server(LoggingMixin):
             self.prev_heartbeat = time
 
     def manage_timeout(self):
-            # Election timeout met, so start election
-            if self.state != State.LEADER and  self.check_timeout():
-                self.transition_to_state(State.CANDIDATE)
-                self.send_request_vote()
+        """Starts an election if the election timeout has been met"""
+        if self.state != State.LEADER and  self.check_timeout():
+            self.transition_to_state(State.CANDIDATE)
+            self.send_request_vote()
 
     def apply_committed(self):
+        """Applies all committed entries"""
         # If commitIndex > lastApplied: increment lastApplied, 
         # apply log[lastApplied] to state machine
         if self.commit_idx > self.last_applied:
@@ -703,15 +723,16 @@ class Server(LoggingMixin):
             self.last_applied = self.commit_idx
         
     def manage_msg_recv(self, msg):
-            self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
-            # If RPC request or response contains term T > currentTerm: 
-            # set currentTerm = T, convert to follower 
-            if 'term' in msg and self.current_term < msg['term']:
-                self.info('Reverting to FOLLOWER, Term {}.{} from {}'
-                    .format(msg['term'], msg['type'], msg['src']))
-                self.transition_to_state(State.FOLLOWER, msg)
-                self.reset_timeouts()
-            self.dispatch(msg['type'], msg)
+        """Dispatches a received message accordingly"""
+        self.debug('Replica ' + self.id + ' recieved ' +json.dumps(msg))
+        # If RPC request or response contains term T > currentTerm: 
+        # set currentTerm = T, convert to follower 
+        if 'term' in msg and self.current_term < msg['term']:
+            self.info('Reverting to FOLLOWER, Term {}.{} from {}'
+                .format(msg['term'], msg['type'], msg['src']))
+            self.transition_to_state(State.FOLLOWER, msg)
+            self.reset_timeouts()
+        self.dispatch(msg['type'], msg)
 
     def run(self):
         """Runs the main loop"""

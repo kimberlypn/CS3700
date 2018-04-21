@@ -63,3 +63,16 @@ the script to bypass checks such as "too many messages" so that we could focus
 on ensuring that we were implementing Raft correctly. 
 
 ## Contributions:
+Kimberly: created the SimulatorSocket class to handle socket connection and 
+sending/receiving messages, created initial implmentation that handled the 
+election process, executing and responding to client requests, and AppendEntries 
+RPCs/heartbeats between the leader and its followers
+
+Tristan: created the debugging infrastructure/modified the test script, revamped 
+the initial implementation and added the missing Raft details, which included the 
+logic for correctly appending log entries, efficiently responding to client requests 
+during the election process, handling uncommitted entries during leader changes, 
+and retrying AppendEntries RPCs for replicas that have not replied
+
+We also pair-programmed at one point and utilized PRs to review and give feedback 
+on each other's work.

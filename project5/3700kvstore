@@ -544,8 +544,8 @@ class Server(LoggingMixin):
                 # which brings something into the majorty and commits it
                 #
                 # From this replica's persective, the message was already ready to
-                # be comitted, so only need N//2 confirmations. Therefore, the second
-                # highest index is the one to mark comitted
+                # be committed, so only need N//2 confirmations. Therefore, the 
+                # second highest index is the one to mark committed
                 ordered_matches = list(sorted(self.match_idx.values()))
                 # Note order of operations matters, -5 // 2 is -3 not -2
                 new_commit_idx = ordered_matches[-(self.n // 2)]
